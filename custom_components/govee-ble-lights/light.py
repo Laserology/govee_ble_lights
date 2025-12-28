@@ -32,7 +32,8 @@ _LOGGER = logging.getLogger(__name__)
 
 UUID_CONTROL_CHARACTERISTIC = '00010203-0405-0607-0809-0a0b0c0d2b11'
 EFFECT_PARSE = re.compile("\[(\d+)/(\d+)/(\d+)/(\d+)]")
-SEGMENTED_MODELS = ['H6053', 'H6072', 'H6102', 'H6199', 'H617C']
+SEGMENTED_MODELS = ['H6053', 'H6072', 'H6102', 'H6199', 'H617A', 'H617C']
+PERCENT_MODELS = ['H617A', 'H617C']
 
 class LedCommand(IntEnum):
     """ A control command packet's type. """
@@ -218,6 +219,7 @@ class GoveeBluetoothLight(LightEntity):
         self._mac = hub.address
         self._model = config_entry.data["model"]
         self._is_segmented = self._model in SEGMENTED_MODELS
+        self._use_percent = self._model in PERCENT_MODELS
         self._ble_device = ble_device
         self._state = None
         self._brightness = None
@@ -266,7 +268,12 @@ class GoveeBluetoothLight(LightEntity):
 
         if ATTR_BRIGHTNESS in kwargs:
             brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
-            commands.append(self._prepareSinglePacketData(LedCommand.BRIGHTNESS, [brightness]))
+            # Some models require a percentage instead of the raw value of a byte.
+            if self._use_percent:
+                brightnessPercent = int(brightness * 100 / 255)
+                commands.append(self._prepareSinglePacketData(LedCommand.BRIGHTNESS, [brightnessPercent]))
+            else:
+                commands.append(self._prepareSinglePacketData(LedCommand.BRIGHTNESS, [brightness]))
             self._brightness = brightness
 
         if ATTR_RGB_COLOR in kwargs:
