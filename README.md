@@ -1,5 +1,6 @@
 # Ultimate BLE Lighting Control Integration for HomeAssistant
 ![Home Assistant](https://img.shields.io/badge/home%20assistant-%2341BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 <img src="assets/govee-logo.png" alt="Govee Logo" width="125">
 
 A powerful and seamless integration to control your Govee lighting devices via Govee API or BLE directly from HomeAssistant.
