@@ -1,5 +1,5 @@
 {
-    "domain": "ultiimate-govee-ble-lights",
+    "domain": "ultimate-govee-ble-lights",
     "name": "Ultimate Govee BLE Lights",
     "integration_type": "hub",
     "bluetooth": [
