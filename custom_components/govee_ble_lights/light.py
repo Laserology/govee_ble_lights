@@ -355,12 +355,44 @@ class GoveeBluetoothLight(LightEntity, RestoreEntity):
         await self._save_state()
 
     async def _connectBluetooth(self) -> BleakClient:
+        last_error: Exception | None = None
         for i in range(3):
             try:
-                client = await bleak_retry_connector.establish_connection(BleakClient, self._ble_device, self.unique_id)
+                if self._ble_device is None:
+                    self._ble_device = bluetooth.async_ble_device_from_address(
+                        self.hass,
+                        self._mac.upper(),
+                        True,
+                    )
+                    if self._ble_device is None:
+                        self._ble_device = bluetooth.async_ble_device_from_address(
+                            self.hass,
+                            self._mac.upper(),
+                            False,
+                        )
+                if self._ble_device is None:
+                    raise ConnectionError(
+                        f"Could not resolve BLE device with address {self._mac}"
+                    )
+                client = await bleak_retry_connector.establish_connection(
+                    BleakClient,
+                    self._ble_device,
+                    self.unique_id,
+                )
                 return client
-            except:
+            except Exception as err:
+                last_error = err
+                self._ble_device = None
+                _LOGGER.debug(
+                    "Failed to connect to BLE device %s on attempt %s",
+                    self._mac,
+                    i + 1,
+                    exc_info=True,
+                )
                 continue
+        raise ConnectionError(
+            f"Unable to connect to BLE device {self._mac}"
+        ) from last_error
 
     def _prepareSinglePacketData(self, cmd, payload):
         if not isinstance(cmd, int):
