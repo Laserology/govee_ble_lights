@@ -9,12 +9,21 @@ import bleak_retry_connector
 
 from bleak import BleakClient
 from homeassistant.components import bluetooth
-from homeassistant.components.light import (ATTR_BRIGHTNESS, ATTR_RGB_COLOR, ATTR_EFFECT, ColorMode, LightEntity,
-                                            LightEntityFeature, ATTR_COLOR_TEMP_KELVIN)
+from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
+    ATTR_COLOR_TEMP_KELVIN,
+    ATTR_EFFECT,
+    ATTR_RGB_COLOR,
+    ColorMode,
+    LightEntity,
+    LightEntityFeature,
+)
 
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.const import STATE_ON
 import homeassistant.util.color as color_util
 
 from .const import DOMAIN
@@ -67,7 +76,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
                 _LOGGER.info("Adding device: %s", device)
                 async_add_entities([GoveeAPILight(hub, device)])
     elif hub.address is not None:
-        ble_device = bluetooth.async_ble_device_from_address(hass, hub.address.upper(), False)
+        ble_device = bluetooth.async_ble_device_from_address(hass, hub.address.upper(), True)
         async_add_entities([GoveeBluetoothLight(hub, ble_device, config_entry)])
 
 
@@ -208,11 +217,13 @@ class GoveeAPILight(LightEntity, dict):
         self._state = False
 
 
-class GoveeBluetoothLight(LightEntity):
+class GoveeBluetoothLight(LightEntity, RestoreEntity):
     _attr_color_mode = ColorMode.RGB
     _attr_supported_color_modes = {ColorMode.RGB}
     _attr_supported_features = LightEntityFeature(
         LightEntityFeature.EFFECT | LightEntityFeature.FLASH | LightEntityFeature.TRANSITION)
+    _attr_assumed_state = True
+    _attr_should_poll = False
 
     def __init__(self, hub: Hub, ble_device, config_entry: ConfigEntry) -> None:
         """Initialize an bluetooth light."""
@@ -265,6 +276,13 @@ class GoveeBluetoothLight(LightEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last known state."""
         await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._state = last_state.state == STATE_ON
+            self._brightness = last_state.attributes.get(ATTR_BRIGHTNESS)
+            self._rgb_color = last_state.attributes.get(ATTR_RGB_COLOR)
+            return
+
         stored_state = await self._load_stored_state()
         if stored_state is None:
             return
