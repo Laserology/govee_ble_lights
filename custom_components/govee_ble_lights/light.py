@@ -77,6 +77,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
                 async_add_entities([GoveeAPILight(hub, device)])
     elif hub.address is not None:
         ble_device = bluetooth.async_ble_device_from_address(hass, hub.address.upper(), True)
+        if ble_device is None:
+            ble_device = bluetooth.async_ble_device_from_address(hass, hub.address.upper(), False)
         async_add_entities([GoveeBluetoothLight(hub, ble_device, config_entry)])
 
 
