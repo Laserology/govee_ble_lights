@@ -6,7 +6,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 
 from homeassistant.components.bluetooth import (
-    BluetoothServiceInfoBleak,
+    BluetoothServiceInfo,
     async_discovered_service_info,
 )
 from homeassistant.config_entries import ConfigFlow
@@ -40,7 +40,7 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
         self._available_models.sort()
 
     async def async_step_bluetooth(
-            self, discovery_info: BluetoothServiceInfoBleak
+            self, discovery_info: BluetoothServiceInfo
     ) -> FlowResult:
         """Handle the bluetooth discovery step."""
         await self.async_set_unique_id(discovery_info.address)
