@@ -223,6 +223,7 @@ class GoveeBluetoothLight(LightEntity):
         self._ble_device = ble_device
         self._state = None
         self._brightness = None
+        self._rgb_color = None
 
     @property
     def effect_list(self) -> list[str] | None:
@@ -260,6 +261,16 @@ class GoveeBluetoothLight(LightEntity):
     def is_on(self) -> bool | None:
         """Return true if light is on."""
         return self._state
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known state."""
+        await super().async_added_to_hass()
+        stored_state = await self._load_stored_state()
+        if stored_state is None:
+            return
+        self._state = stored_state.get("state")
+        self._brightness = stored_state.get("brightness")
+        self._rgb_color = stored_state.get("rgb_color")
 
     async def async_turn_on(self, **kwargs) -> None:
         commands = [self._prepareSinglePacketData(LedCommand.POWER, [0x1])]
@@ -316,11 +327,14 @@ class GoveeBluetoothLight(LightEntity):
             client = await self._connectBluetooth()
             await client.write_gatt_char(UUID_CONTROL_CHARACTERISTIC, command, False)
 
+        await self._save_state()
+
     async def async_turn_off(self, **kwargs) -> None:
         client = await self._connectBluetooth()
         await client.write_gatt_char(UUID_CONTROL_CHARACTERISTIC,
                                      self._prepareSinglePacketData(LedCommand.POWER, [0x0]), False)
         self._state = False
+        await self._save_state()
 
     async def _connectBluetooth(self) -> BleakClient:
         for i in range(3):
@@ -353,3 +367,22 @@ class GoveeBluetoothLight(LightEntity):
 
         frame += bytes([checksum & 0xFF])
         return frame
+
+    def _get_store(self) -> Store:
+        return Store(self.hass, 1, f"{DOMAIN}/ble_state_{self.unique_id}.json")
+
+    async def _load_stored_state(self) -> dict | None:
+        if self.hass is None:
+            return None
+        return await self._get_store().async_load()
+
+    async def _save_state(self) -> None:
+        if self.hass is None:
+            return
+        await self._get_store().async_save(
+            {
+                "state": self._state,
+                "brightness": self._brightness,
+                "rgb_color": self._rgb_color,
+            }
+        )
