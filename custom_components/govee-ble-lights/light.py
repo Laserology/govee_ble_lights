@@ -1,60 +1,35 @@
 from __future__ import annotations
 
-import array
+from datetime import timedelta
+from pathlib import Path
 import logging
+import base64
+import array
+import json
 import re
 
-from enum import IntEnum
-import bleak_retry_connector
-
-from bleak import BleakClient
+from homeassistant.components.light import (ATTR_BRIGHTNESS, ATTR_RGB_COLOR, ATTR_COLOR_TEMP_KELVIN, ATTR_EFFECT, ColorMode, LightEntity, LightEntityFeature)
 from homeassistant.components import bluetooth
-from homeassistant.components.light import (ATTR_BRIGHTNESS, ATTR_RGB_COLOR, ATTR_EFFECT, ColorMode, LightEntity,
-                                            LightEntityFeature, ATTR_COLOR_TEMP_KELVIN)
 
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.storage import Store
 import homeassistant.util.color as color_util
 
+from .GoveeBLE import GoveeBLE
 from .const import DOMAIN
-from pathlib import Path
-import json
-from .govee_utils import prepareMultiplePacketsData
-import base64
 from . import Hub
-from datetime import timedelta
 
 SCAN_INTERVAL = timedelta(seconds=30)
 
-
 _LOGGER = logging.getLogger(__name__)
 
-UUID_CONTROL_CHARACTERISTIC = '00010203-0405-0607-0809-0a0b0c0d2b11'
 EFFECT_PARSE = re.compile(r"\[(\d+)/(\d+)/(\d+)/(\d+)\]")
 SEGMENTED_MODELS = ['H6053', 'H6072', 'H6102', 'H6199', 'H617A', 'H617C']
 PERCENT_MODELS = ['H617A', 'H617C']
 
-class LedCommand(IntEnum):
-    """ A control command packet's type. """
-    POWER = 0x01
-    BRIGHTNESS = 0x04
-    COLOR = 0x05
-
-
-class LedMode(IntEnum):
-    """
-    The mode in which a color change happens in.
-    
-    Currently only manual is supported.
-    """
-    MANUAL = 0x02
-    MICROPHONE = 0x06
-    SCENES = 0x05
-    SEGMENTS = 0x15
-
-
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
+    """ Async setup routine - Used to manage visible devices. """
     if config_entry.entry_id in hass.data[DOMAIN]:
         hub: Hub = hass.data[DOMAIN][config_entry.entry_id]
     else:
@@ -70,8 +45,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
         ble_device = bluetooth.async_ble_device_from_address(hass, hub.address.upper(), False)
         async_add_entities([GoveeBluetoothLight(hub, ble_device, config_entry)])
 
-
 class GoveeAPILight(LightEntity, dict):
+    """The class representing networked (Wi-Fi) devices."""
+
     _attr_color_mode = ColorMode.RGB
 
     def __init__(self, hub: Hub, device: dict) -> None:
@@ -207,22 +183,27 @@ class GoveeAPILight(LightEntity, dict):
         await self.hub.api.toggle_power(self.sku, self.device, 0)
         self._state = False
 
-
 class GoveeBluetoothLight(LightEntity):
+    """ This is the class that controls BLE-Specific govee LED light strips and fixtures. """
     _attr_color_mode = ColorMode.RGB
     _attr_supported_color_modes = {ColorMode.RGB}
-    _attr_supported_features = LightEntityFeature(
-        LightEntityFeature.EFFECT | LightEntityFeature.FLASH | LightEntityFeature.TRANSITION)
+    _attr_supported_features = LightEntityFeature(LightEntityFeature.EFFECT | LightEntityFeature.FLASH | LightEntityFeature.TRANSITION)
 
     def __init__(self, hub: Hub, ble_device, config_entry: ConfigEntry) -> None:
         """Initialize an bluetooth light."""
-        self._mac = hub.address
+        self._ble_device = ble_device
         self._model = config_entry.data["model"]
+        self._mac = hub.address
+
         self._is_segmented = self._model in SEGMENTED_MODELS
         self._use_percent = self._model in PERCENT_MODELS
-        self._ble_device = ble_device
-        self._state = None
-        self._brightness = None
+
+        # Turn off the device on initialization - We can't get existing state info,
+        # So we reset it to a known state. Duplicated from async_turn_off
+        GoveeBLE.send_single(self, self._ble_device, self.unique_id, GoveeBLE.LEDCommand.POWER, [0x0], False)
+        self._rgb_color = (0, 0, 0)
+        self._brightness = 0
+        self._state = False
 
     @property
     def effect_list(self) -> list[str] | None:
@@ -231,11 +212,10 @@ class GoveeBluetoothLight(LightEntity):
         for categoryIdx, category in enumerate(json_data['data']['categories']):
             for sceneIdx, scene in enumerate(category['scenes']):
                 for leffectIdx, lightEffect in enumerate(scene['lightEffects']):
-                    for seffectIxd, specialEffect in enumerate(lightEffect['specialEffect']):
+                    for seffectIxd, _ in enumerate(lightEffect['specialEffect']):
                         # if 'supportSku' not in specialEffect or self._model in specialEffect['supportSku']:
                         # Workaround cause we need to store some metadata in effect (effect names not unique)
-                        indexes = str(categoryIdx) + "/" + str(sceneIdx) + "/" + str(leffectIdx) + "/" + str(
-                            seffectIxd)
+                        indexes = str(categoryIdx) + "/" + str(sceneIdx) + "/" + str(leffectIdx) + "/" + str(seffectIxd)
                         effect_list.append(
                             category['categoryName'] + " - " + scene['sceneName'] + ' - ' + lightEffect[
                                 'scenceName'] + " [" + indexes + "]")
@@ -262,31 +242,31 @@ class GoveeBluetoothLight(LightEntity):
         return self._state
 
     async def async_turn_on(self, **kwargs) -> None:
-        commands = [self._prepareSinglePacketData(LedCommand.POWER, [0x1])]
+        """ Async command to change various light parameters. """
+        commands = [GoveeBLE.prepare_packet(self, GoveeBLE.LEDCommand.POWER, [0x1])]
 
         self._state = True
 
         if ATTR_BRIGHTNESS in kwargs:
-            brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
+            self._brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
+
             # Some models require a percentage instead of the raw value of a byte.
-            if self._use_percent:
-                brightnessPercent = int(brightness * 100 / 255)
-                commands.append(self._prepareSinglePacketData(LedCommand.BRIGHTNESS, [brightnessPercent]))
-            else:
-                commands.append(self._prepareSinglePacketData(LedCommand.BRIGHTNESS, [brightness]))
-            self._brightness = brightness
+            _normalized = (self._brightness / 255) * 100 if self._use_percent else self._brightness
+
+            commands.append(self._preparePacket(GoveeBLE.LEDCommand.BRIGHTNESS, [_normalized]))
 
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
 
             if self._is_segmented:
-                commands.append(self._prepareSinglePacketData(LedCommand.COLOR,
-                                                              [LedMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00,
+                commands.append(self._preparePacket(GoveeBLE.LEDCommand.COLOR,
+                                                              [GoveeBLE.LEDMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00,
                                                                0x00, 0x00, 0xFF, 0x7F]))
             else:
-                commands.append(self._prepareSinglePacketData(LedCommand.COLOR, [LedMode.MANUAL, red, green, blue]))
+                commands.append(self._preparePacket(GoveeBLE.LEDCommand.COLOR, [GoveeBLE.LEDMode.MANUAL, red, green, blue]))
 
             self._rgb_color = (red, green, blue)
+
         if ATTR_EFFECT in kwargs:
             effect = kwargs.get(ATTR_EFFECT)
             if len(effect) > 0:
@@ -305,51 +285,21 @@ class GoveeBluetoothLight(LightEntity):
                 specialEffect = lightEffect['specialEffect'][specialEffectIndex]
 
                 # Prepare packets to send big payload in separated chunks
-                for command in prepareMultiplePacketsData(0xa3,
+                for command in GoveeBLE.prepare_multi_packet(self, 0xa3,
                                                           array.array('B', [0x02]),
                                                           array.array('B',
                                                                       base64.b64decode(specialEffect['scenceParam'])
                                                                       )):
                     commands.append(command)
 
+        # Alert the front end that this is not currently working.
+        if ATTR_COLOR_TEMP_KELVIN in kwargs:
+            raise NotImplementedError
+
         for command in commands:
-            client = await self._connectBluetooth()
-            await client.write_gatt_char(UUID_CONTROL_CHARACTERISTIC, command, False)
+            await GoveeBLE.send_command(self, self._ble_device, self.unique_id, command, False)
 
     async def async_turn_off(self, **kwargs) -> None:
-        client = await self._connectBluetooth()
-        await client.write_gatt_char(UUID_CONTROL_CHARACTERISTIC,
-                                     self._prepareSinglePacketData(LedCommand.POWER, [0x0]), False)
+        """ Async command to entirely turn off a light object. """
+        await GoveeBLE.send_single(self, self._ble_device, self.unique_id, GoveeBLE.LEDCommand.POWER, [0x0], False)
         self._state = False
-
-    async def _connectBluetooth(self) -> BleakClient:
-        for i in range(3):
-            try:
-                client = await bleak_retry_connector.establish_connection(BleakClient, self._ble_device, self.unique_id)
-                return client
-            except:
-                continue
-
-    def _prepareSinglePacketData(self, cmd, payload):
-        if not isinstance(cmd, int):
-            raise ValueError('Invalid command')
-        if not isinstance(payload, bytes) and not (
-                isinstance(payload, list) and all(isinstance(x, int) for x in payload)):
-            raise ValueError('Invalid payload')
-        if len(payload) > 17:
-            raise ValueError('Payload too long')
-
-        cmd = cmd & 0xFF
-        payload = bytes(payload)
-
-        frame = bytes([0x33, cmd]) + bytes(payload)
-        # pad frame data to 19 bytes (plus checksum)
-        frame += bytes([0] * (19 - len(frame)))
-
-        # The checksum is calculated by XORing all data bytes
-        checksum = 0
-        for b in frame:
-            checksum ^= b
-
-        frame += bytes([checksum & 0xFF])
-        return frame
