@@ -1,8 +1,8 @@
 """ Import core+HASS libraries. """
 from enum import IntEnum
 import array
-from bleak import BleakClient
-import bleak_retry_connector
+from bleak import BleakClient, BleakCharacteristicNotFoundError
+import bleak_retry_connector as brc
 
 class GoveeBLE:
     """ Global utilities used multiple times throughout the project. """
@@ -31,15 +31,24 @@ class GoveeBLE:
     async def send_command(self, ble_device, unique_id, packet: bytes, value: bool) -> None:
         """ Central function to send a command over bluetooth using the bleak client. """
         # Maybe show an error when a connection can't be established?
+        # To-Do: Implement catching more exception types.
         for _ in range(3):
             try:
-                client = await bleak_retry_connector.establish_connection(BleakClient, ble_device, unique_id)
+                client = await brc.establish_connection(BleakClient, ble_device, unique_id)
                 await client.write_gatt_char(self.UUID_CONTROL_CHARACTERISTIC, packet, value)
                 break
-            except:
+            except BleakCharacteristicNotFoundError:
+                continue
+            # Remove this eventually
+            # We will seperate exceptions into known categories to give better feedback.
+            except Exception:
                 continue
 
     def prepare_multi_packet(self, protocol_type, header_array, data) -> array:
+        """
+        Prepares a multi part BLE data packet with the given input.
+        """
+
         result = []
 
         # Initialize the initial buffer
@@ -98,6 +107,11 @@ class GoveeBLE:
         return result
 
     def prepare_packet(self, cmd, payload) -> bytes:
+        """
+        Prepares a single packed with the given arguments.
+        Originally squashed into light.py
+        """
+
         if not isinstance(cmd, int):
             raise ValueError('Invalid command')
         if not isinstance(payload, bytes) and not (
@@ -122,6 +136,10 @@ class GoveeBLE:
         return frame
 
     def sign_payload(self, data):
+        """
+        Signs a payload - Not sure what this does exactly.
+        Only the original maintainer would know.
+        """
         checksum = 0
         for b in data:
             checksum ^= b
