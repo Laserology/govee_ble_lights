@@ -1,8 +1,13 @@
-from __future__ import annotations
+"""
+File used to initialize this integration.
+"""
 
+# Import core libraries.
+from __future__ import annotations
 import asyncio
 import logging
 
+# Import needed home assistant libraries.
 from homeassistant.const import (CONF_API_KEY, CONF_MODEL, MAJOR_VERSION, MINOR_VERSION)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.components import bluetooth
@@ -10,12 +15,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.storage import Store
 
+# Import needed local files.
 from .govee_api import GoveeAPI
-
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
-
 PLATFORMS: list[str] = ["light"]
 UNIQUE_DEVICES = {}
 

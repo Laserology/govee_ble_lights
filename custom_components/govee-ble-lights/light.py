@@ -1,3 +1,9 @@
+"""
+The light class used to represent Govee LED BLE devices.
+All functions here are strictly for light control.
+All conectivity funcionality is located in GoveeBLE.py
+"""
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -8,7 +14,16 @@ import array
 import json
 import re
 
-from homeassistant.components.light import (ATTR_BRIGHTNESS, ATTR_RGB_COLOR, ATTR_COLOR_TEMP_KELVIN, ATTR_EFFECT, ColorMode, LightEntity, LightEntityFeature)
+# Import various lighting components/attributes.
+from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
+    ATTR_RGB_COLOR,
+    ATTR_COLOR_TEMP_KELVIN,
+    ATTR_EFFECT,
+    ColorMode,
+    LightEntity,
+    LightEntityFeature)
+
 from homeassistant.components import bluetooth
 
 from homeassistant.core import HomeAssistant
@@ -16,7 +31,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.storage import Store
 import homeassistant.util.color as color_util
 
-from .GoveeBLE import GoveeBLE
+# Import local files.
+from .govee_ble import GoveeBLE
 from .const import DOMAIN
 from . import Hub
 

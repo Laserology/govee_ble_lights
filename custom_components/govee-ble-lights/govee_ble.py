@@ -1,6 +1,13 @@
-""" Import core+HASS libraries. """
+"""
+The core bluetooth stack for Govee BLE LEDs.
+This file contains data structures and methods representing BLE data packets.
+"""
+
+# Import core libraries.
 from enum import IntEnum
 import array
+
+# Import bluetooth libraries.
 from bleak import BleakClient, BleakCharacteristicNotFoundError
 import bleak_retry_connector as brc
 
@@ -53,11 +60,13 @@ class GoveeBLE:
 
         # Initialize the initial buffer
         header_length = len(header_array)
+        header_offset = header_length + 4
+
         initial_buffer = array.array('B', [0] * 20)
         initial_buffer[0] = protocol_type
         initial_buffer[1] = 0
         initial_buffer[2] = 1
-        initial_buffer[4:4+header_length] = header_array
+        initial_buffer[4:header_offset] = header_array
 
         # Create the additional buffer
         additional_buffer = array.array('B', [0] * 20)
@@ -67,7 +76,7 @@ class GoveeBLE:
         remaining_space = 14 - header_length + 1
 
         if len(data) <= remaining_space:
-            initial_buffer[header_length + 4:header_length + 4 + len(data)] = data
+            initial_buffer[header_offset:header_offset + len(data)] = data
         else:
             excess = len(data) - remaining_space
             chunks = excess // 17
@@ -78,7 +87,7 @@ class GoveeBLE:
             else:
                 remainder = 17
 
-            initial_buffer[header_length + 4:header_length + 4 + remaining_space] = data[0:remaining_space]
+            initial_buffer[header_offset:header_offset + remaining_space] = data[0:remaining_space]
             current_index = remaining_space
 
             for i in range(1, chunks + 1):

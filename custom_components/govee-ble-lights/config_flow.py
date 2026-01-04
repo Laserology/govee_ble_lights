@@ -1,20 +1,32 @@
-from __future__ import annotations
+"""
+The main config flow file - Add more info later.
+"""
 
+# Import needed core libraries.
+from __future__ import annotations
+from pathlib import Path
 from typing import Any
 
-import voluptuous as vol
-from homeassistant import config_entries
 
+# Import needed home assistant libraries.
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
-    async_discovered_service_info,
-)
-from homeassistant.config_entries import ConfigFlow
-from homeassistant.const import (CONF_ADDRESS, CONF_MODEL, CONF_API_KEY, CONF_TYPE)
-from homeassistant.data_entry_flow import FlowResult
+    async_discovered_service_info)
 
+from homeassistant.const import (
+    CONF_ADDRESS,
+    CONF_MODEL,
+    CONF_API_KEY,
+    CONF_TYPE)
+
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.config_entries import ConfigFlow
+from homeassistant import config_entries
+
+import voluptuous as vol
+
+# Import local needed files.
 from .const import DOMAIN, CONF_TYPE_API, CONF_TYPE_BLE
-from pathlib import Path
 
 class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
