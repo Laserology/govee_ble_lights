@@ -1,20 +1,32 @@
-from __future__ import annotations
+"""
+The main config flow file - Add more info later.
+"""
 
+# Import needed core libraries.
+from __future__ import annotations
+from pathlib import Path
 from typing import Any
 
-import voluptuous as vol
-from homeassistant import config_entries
 
+# Import needed home assistant libraries.
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
-    async_discovered_service_info,
-)
-from homeassistant.config_entries import ConfigFlow
-from homeassistant.const import (CONF_ADDRESS, CONF_MODEL, CONF_API_KEY, CONF_TYPE)
-from homeassistant.data_entry_flow import FlowResult
+    async_discovered_service_info)
 
+from homeassistant.const import (
+    CONF_ADDRESS,
+    CONF_MODEL,
+    CONF_API_KEY,
+    CONF_TYPE)
+
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.config_entries import ConfigFlow
+from homeassistant import config_entries
+
+import voluptuous as vol
+
+# Import local needed files.
 from .const import DOMAIN, CONF_TYPE_API, CONF_TYPE_BLE
-from pathlib import Path
 
 class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
@@ -39,18 +51,14 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
 
         self._available_models.sort()
 
-    async def async_step_bluetooth(
-            self, discovery_info: BluetoothServiceInfoBleak
-    ) -> FlowResult:
+    async def async_step_bluetooth(self, discovery_info: BluetoothServiceInfoBleak) -> FlowResult:
         """Handle the bluetooth discovery step."""
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
         self._discovery_info = discovery_info
         return await self.async_step_bluetooth_confirm()
 
-    async def async_step_bluetooth_confirm(
-            self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_bluetooth_confirm(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Confirm discovery."""
         assert self._discovery_info is not None
         discovery_info = self._discovery_info
@@ -67,6 +75,7 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
             "model": "Device model"
         }
         self.context["title_placeholders"] = placeholders
+
         return self.async_show_form(
             step_id="bluetooth_confirm",
             description_placeholders=placeholders,
@@ -75,9 +84,7 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
             }),
         )
 
-    async def async_step_api(
-            self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_api(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         errors = {}
 
         if user_input is not None and CONF_API_KEY in user_input and user_input[CONF_API_KEY] is not None:
@@ -97,15 +104,15 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors
         )
 
-    async def async_step_ble(
-            self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_ble(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         errors = {}
+
         current_addresses = self._async_current_ids()
         for discovery_info in async_discovered_service_info(self.hass, False):
             address = discovery_info.address
             if address in current_addresses or address in self._discovered_devices:
                 continue
+
             self._discovered_devices[address] = (discovery_info.name)
 
         if (user_input is not None and CONF_ADDRESS in user_input and user_input[CONF_ADDRESS] is not None
@@ -114,6 +121,7 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
             model = user_input[CONF_MODEL]
             await self.async_set_unique_id(address, raise_on_progress=False)
             self._abort_if_unique_id_configured()
+
             return self.async_create_entry(
                 title=self._discovered_devices[address], data={
                     CONF_MODEL: model
@@ -129,9 +137,7 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors
         )
 
-    async def async_step_user(
-            self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None and user_input[CONF_TYPE] == CONF_TYPE_API:
             return await self.async_step_api(user_input)
         if user_input is not None and user_input[CONF_TYPE] == CONF_TYPE_BLE:
