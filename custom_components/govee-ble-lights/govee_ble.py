@@ -16,20 +16,18 @@ class GoveeBLE:
 
     UUID_CONTROL_CHARACTERISTIC = '00010203-0405-0607-0809-0a0b0c0d2b11'
 
-    """ A control command packet's type. """
-    LEDCommand = IntEnum(
-        POWER = 0x01,
-        BRIGHTNESS = 0x04,
+    class LEDCommand(IntEnum):
+        """ A control command packet's type. """
+        POWER = 0x01
+        BRIGHTNESS = 0x04
         COLOR = 0x05
-        )
 
-    """ The mode in which a color change happens in. Currently only manual is supported. """
-    LEDMode = IntEnum(
-        MANUAL = 0x02,
-        MICROPHONE = 0x06,
-        SCENES = 0x05,
+    class LEDMode(IntEnum):
+        """ The mode in which a color change happens in. Currently only manual is supported. """
+        MANUAL = 0x02
+        MICROPHONE = 0x06
+        SCENES = 0x05
         SEGMENTS = 0x15
-        )
 
     async def send_single(self, ble_device, unique_id, cmd, payload, value: bool) -> None:
         """ Single-line method to send single-packet signals. """
