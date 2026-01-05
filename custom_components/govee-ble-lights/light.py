@@ -269,17 +269,17 @@ class GoveeBluetoothLight(LightEntity):
             # Some models require a percentage instead of the raw value of a byte.
             _normalized = (self._brightness / 255) * 100 if self._use_percent else self._brightness
 
-            commands.append(self._preparePacket(GoveeBLE.LEDCommand.BRIGHTNESS, [_normalized]))
+            commands.append(GoveeBLE.prepare_packet(self, GoveeBLE.LEDCommand.BRIGHTNESS, [_normalized]))
 
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
 
             if self._is_segmented:
-                commands.append(self._preparePacket(GoveeBLE.LEDCommand.COLOR,
+                commands.append(GoveeBLE.prepare_packet(self, GoveeBLE.LEDCommand.COLOR,
                                                               [GoveeBLE.LEDMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00,
                                                                0x00, 0x00, 0xFF, 0x7F]))
             else:
-                commands.append(self._preparePacket(GoveeBLE.LEDCommand.COLOR, [GoveeBLE.LEDMode.MANUAL, red, green, blue]))
+                commands.append(GoveeBLE.prepare_packet(self, GoveeBLE.LEDCommand.COLOR, [GoveeBLE.LEDMode.MANUAL, red, green, blue]))
 
             self._rgb_color = (red, green, blue)
 
