@@ -260,11 +260,15 @@ class GoveeBluetoothLight(LightEntity):
         if ATTR_BRIGHTNESS in kwargs:
             self._brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
 
+            raw = self._brightness
+            if self._use_percent:
+                raw = (raw / 255) * 100
+
             # Some models require a percentage instead of the raw value of a byte.
             await GoveeBLE.send_single_packet(
                 client,
                 GoveeBLE.LEDCommand.BRIGHTNESS, # Command
-                [((self._brightness / 255) * 100) if self._use_percent else self._brightness]) # Data
+                [raw]) # Data
 
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
