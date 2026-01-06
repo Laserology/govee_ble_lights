@@ -8,7 +8,7 @@ import array
 from bleak import BleakClient
 import bleak_retry_connector as brc
 
-class GoveeBLE:
+class GoveeBLE(object):
     """
     This class is used to connect to and control Govee branded BLE LED lights.
     """
@@ -32,16 +32,18 @@ class GoveeBLE:
     SEGMENTED_MODELS = ['H6053', 'H6072', 'H6102', 'H6199', 'H617A', 'H617C']
     PERCENT_MODELS = ['H617A', 'H617C']
 
-    def send_multi_packet(self, client, protocol_type, header_array, data):
+    @staticmethod
+    def send_multi_packet(client, protocol_type, header_array, data):
         """
         Creates a multi-packed packet.
-        Later this should be converted into a direct send method to reduce repeating code in light.py.
         """
 
         result = []
 
         # Initialize the initial buffer
         header_length = len(header_array)
+        header_offset = header_length + 4
+
         initial_buffer = array.array('B', [0] * 20)
         initial_buffer[0] = protocol_type
         initial_buffer[1] = 0
@@ -56,7 +58,7 @@ class GoveeBLE:
         remaining_space = 14 - header_length + 1
 
         if len(data) <= remaining_space:
-            initial_buffer[header_length + 4:header_length + 4 + len(data)] = data
+            initial_buffer[header_offset:header_offset + len(data)] = data
         else:
             excess = len(data) - remaining_space
             chunks = excess // 17
@@ -67,7 +69,7 @@ class GoveeBLE:
             else:
                 remainder = 17
 
-            initial_buffer[header_length + 4:header_length + 4 + remaining_space] = data[0:remaining_space]
+            initial_buffer[header_offset:header_offset + remaining_space] = data[0:remaining_space]
             current_index = remaining_space
 
             for i in range(1, chunks + 1):
@@ -83,20 +85,21 @@ class GoveeBLE:
                     chunk_buffer[0] = protocol_type
                     chunk_buffer[1] = i
                     chunk_buffer[2:2+chunk_size] = chunk
-                    chunk_buffer[19] = self.sign_payload(chunk_buffer[0:19])
+                    chunk_buffer[19] = GoveeBLE.sign_payload(chunk_buffer[0:19])
                     result.append(chunk_buffer)
 
         initial_buffer[3] = len(result) + 2
-        initial_buffer[19] = self.sign_payload(initial_buffer[0:19])
+        initial_buffer[19] = GoveeBLE.sign_payload(initial_buffer[0:19])
         result.insert(0, initial_buffer)
 
-        additional_buffer[19] = self.sign_payload(additional_buffer[0:19])
+        additional_buffer[19] = GoveeBLE.sign_payload(additional_buffer[0:19])
         result.append(additional_buffer)
 
         for r in result:
-            self.send_single_frame(client, r)
+            GoveeBLE.send_single_frame(client, r)
 
-    def send_single_packet(self, client, cmd, payload):
+    @staticmethod
+    def send_single_packet(client, cmd, payload):
         """
         Creates, signs, and sends a complete BLE packet to the device.
         Functions according to the input command and payload.
@@ -122,17 +125,19 @@ class GoveeBLE:
         for b in frame:
             checksum ^= b
 
-        frame += self.sign_payload(frame)
+        frame += GoveeBLE.sign_payload(frame)
 
-        self.send_single_frame(client, frame)
+        GoveeBLE.send_single_frame(client, frame)
 
-    async def send_single_frame(self, client, frame):
+    @staticmethod
+    async def send_single_frame(client, frame):
         """
         Sends a pre-made BLE frame to the device.v
         """
-        client.write_gatt_char(self.UUID_CONTROL_CHARACTERISTIC, frame, False)
+        client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC, frame, False)
 
-    async def connect_to(self, device, identifier):
+    @staticmethod
+    async def connect_to(device, identifier):
         """" This method connects to and returns a handle for the target BLE device. """
         for _ in range(3):
             try:
@@ -140,7 +145,8 @@ class GoveeBLE:
             except:
                 continue
 
-    def sign_payload(self, data):
+    @staticmethod
+    def sign_payload(data):
         """ 'Signs' a payload. Not sure what it does. """
         checksum = 0
         for b in data:
