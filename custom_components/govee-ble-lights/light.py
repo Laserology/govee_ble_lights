@@ -208,8 +208,9 @@ class GoveeBluetoothLight(LightEntity):
         self._state = None
         self._brightness = None
 
-        client = asyncio.get_event_loop().run_until_complete(GoveeBLE.connect_to(ble_device, self.unique_id))
-        self._state = GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.POWER)
+        loop = asyncio.get_running_loop()
+        client = asyncio.run_coroutine_threadsafe(GoveeBLE.connect_to(ble_device, self.unique_id), loop)
+        self._state = asyncio.run_coroutine_threadsafe(GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.POWER), loop)
 
         # Initialize the lighting effects JSON data.
         # json_data = 
