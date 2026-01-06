@@ -35,7 +35,7 @@ from . import Hub
 EFFECT_PARSE = re.compile(r"\[(\d+)/(\d+)/(\d+)/(\d+)\]")
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=30)
-json_data = json.loads("{}")
+# json_data = json.loads("{}")
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
     if config_entry.entry_id in hass.data[DOMAIN]:
@@ -208,7 +208,7 @@ class GoveeBluetoothLight(LightEntity):
         self._brightness = None
 
         # Initialize the lighting effects JSON data.
-        json_data = json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())
+        # json_data = 
 
         # Pre-connect to the light entity to speed up initial state changes.
         # Untested.
@@ -217,7 +217,7 @@ class GoveeBluetoothLight(LightEntity):
     @property
     def effect_list(self) -> list[str] | None:
         effect_list = []
-        for categoryIdx, category in enumerate(json_data['data']['categories']):
+        for categoryIdx, category in enumerate(json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())['data']['categories']):
             for sceneIdx, scene in enumerate(category['scenes']):
                 for leffectIdx, lightEffect in enumerate(scene['lightEffects']):
                     for seffectIxd, specialEffect in enumerate(lightEffect['specialEffect']):
@@ -293,7 +293,7 @@ class GoveeBluetoothLight(LightEntity):
                 lightEffectIndex = int(search.group(3))
                 specialEffectIndex = int(search.group(4))
 
-                category = self.json_data['data']['categories'][categoryIndex]
+                category = json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())['data']['categories'][categoryIndex]
                 scene = category['scenes'][sceneIndex]
                 lightEffect = scene['lightEffects'][lightEffectIndex]
                 specialEffect = lightEffect['specialEffect'][specialEffectIndex]
