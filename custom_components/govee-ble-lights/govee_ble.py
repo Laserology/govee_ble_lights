@@ -31,7 +31,7 @@ class GoveeBLE:
 
     async def send_single(self, ble_device, unique_id, cmd, payload, value: bool) -> None:
         """ Single-line method to send single-packet signals. """
-        GoveeBLE.send_command(self, ble_device, unique_id, self.prepare_packet(cmd, payload), value)
+        self.send_command(ble_device, unique_id, self.prepare_packet(cmd, payload), value)
 
     async def send_command(self, ble_device, unique_id, packet: bytes, value: bool) -> None:
         """ Central function to send a command over bluetooth using the bleak client. """
