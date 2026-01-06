@@ -1,19 +1,10 @@
-"""
-To-Do: Possibly remove soon.
-Govee cloud network class.
-"""
-
+import requests
 import asyncio
+
 import uuid
 
-import requests
 
 class GoveeAPI:
-    """
-    Govee network API class - May be removed soon.
-    https://github.com/Laserology/govee_ble_lights/issues/5
-    """
-
     def __init__(self, api_key):
         self.api_key = api_key
         self.base_url = "https://openapi.api.govee.com/router/api/v1"
