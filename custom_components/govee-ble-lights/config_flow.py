@@ -66,6 +66,7 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
             "name": title,
             "model": "Device model"
         }
+        # to-do: Infer light model based on BLE name.
         self.context["title_placeholders"] = placeholders
         return self.async_show_form(
             step_id="bluetooth_confirm",

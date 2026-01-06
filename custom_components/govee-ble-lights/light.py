@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 import logging
+import asyncio
 import base64
 import array
 import json
@@ -196,7 +197,7 @@ class GoveeBluetoothLight(LightEntity):
     _attr_color_mode = ColorMode.RGB
 
     def __init__(self, hub: Hub, ble_device, config_entry: ConfigEntry) -> None:
-        """Initialize an bluetooth light."""
+        """Initialize a bluetooth light."""
 
         # Initialize variables.
         self._mac = hub.address
@@ -206,6 +207,9 @@ class GoveeBluetoothLight(LightEntity):
         self._ble_device = ble_device
         self._state = None
         self._brightness = None
+
+        client = asyncio.run(GoveeBLE.connect_to(ble_device, self.unique_id))
+        self._state = GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.POWER)
 
         # Initialize the lighting effects JSON data.
         # json_data = 

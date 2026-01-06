@@ -8,10 +8,8 @@ import array
 from bleak import BleakClient
 import bleak_retry_connector as brc
 
-class GoveeBLE(object):
-    """
-    This class is used to connect to and control Govee branded BLE LED lights.
-    """
+class GoveeBLE:
+    """ This class is used to connect to and control Govee branded BLE LED lights. """
 
     class LEDCommand(IntEnum):
         """ A control command packet's type. """
@@ -33,7 +31,7 @@ class GoveeBLE(object):
     PERCENT_MODELS = ['H617A', 'H617C']
 
     @staticmethod
-    async def send_multi_packet(client, protocol_type, header_array, data):
+    async def send_multi_packet(client: BleakClient, protocol_type, header_array, data):
         """
         Creates a multi-packed packet.
         """
@@ -99,7 +97,7 @@ class GoveeBLE(object):
             await GoveeBLE.send_single_frame(client, r)
 
     @staticmethod
-    async def send_single_packet(client, cmd, payload):
+    async def send_single_packet(client: BleakClient, cmd, payload):
         """
         Creates, signs, and sends a complete BLE packet to the device.
         Functions according to the input command and payload.
@@ -130,14 +128,17 @@ class GoveeBLE(object):
         await GoveeBLE.send_single_frame(client, frame)
 
     @staticmethod
-    async def send_single_frame(client, frame):
-        """
-        Sends a pre-made BLE frame to the device.v
-        """
+    async def send_single_frame(client: BleakClient, frame):
+        """ Sends a pre-made BLE frame to the device. """
         await client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC, frame, False)
 
     @staticmethod
-    async def connect_to(device, identifier):
+    async def read_attribute(client: BleakClient, attribute: LEDCommand):
+        """ Attempts to read a device attribute. """
+        return await client.read_gatt_char(attribute)
+
+    @staticmethod
+    async def connect_to(device, identifier) -> BleakClient:
         """" This method connects to and returns a handle for the target BLE device. """
         for _ in range(3):
             try:
