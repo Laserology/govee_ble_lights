@@ -210,7 +210,7 @@ class GoveeBluetoothLight(LightEntity):
         self._rgb_color = None
 
         # Schedule the lights to update.
-        # self.async_schedule_update_ha_state(True)
+        asyncio.get_running_loop().call_soon(self.async_update)
 
     @property
     def effect_list(self) -> list[str] | None:
