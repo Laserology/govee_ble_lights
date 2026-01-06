@@ -35,6 +35,7 @@ from . import Hub
 EFFECT_PARSE = re.compile(r"\[(\d+)/(\d+)/(\d+)/(\d+)\]")
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=30)
+json_data = json.loads("{}")
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
     if config_entry.entry_id in hass.data[DOMAIN]:
@@ -193,7 +194,6 @@ class GoveeBluetoothLight(LightEntity):
         LightEntityFeature.EFFECT | LightEntityFeature.FLASH | LightEntityFeature.TRANSITION)
     _attr_supported_color_modes = {ColorMode.RGB}
     _attr_color_mode = ColorMode.RGB
-    json_data = json.loads("{}")
 
     def __init__(self, hub: Hub, ble_device, config_entry: ConfigEntry) -> None:
         """Initialize an bluetooth light."""
@@ -208,16 +208,16 @@ class GoveeBluetoothLight(LightEntity):
         self._brightness = None
 
         # Initialize the lighting effects JSON data.
-        json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())
+        json_data = json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())
 
         # Pre-connect to the light entity to speed up initial state changes.
         # Untested.
-        _ = GoveeBLE.connect_to(self._ble_device, self.unique_id)
+        # _ = GoveeBLE.connect_to(self._ble_device, self.unique_id)
 
     @property
     def effect_list(self) -> list[str] | None:
         effect_list = []
-        for categoryIdx, category in enumerate(self.json_data['data']['categories']):
+        for categoryIdx, category in enumerate(json_data['data']['categories']):
             for sceneIdx, scene in enumerate(category['scenes']):
                 for leffectIdx, lightEffect in enumerate(scene['lightEffects']):
                     for seffectIxd, specialEffect in enumerate(lightEffect['specialEffect']):
