@@ -1,39 +1,47 @@
+"""
+This class represents Govee light entities.
+It only contains the basic methods, and uses govee_ble to talk to govee devices.
+"""
+
 from __future__ import annotations
 
-import array
+from datetime import timedelta
+from enum import IntEnum
+from pathlib import Path
 import logging
+import base64
+import array
+import json
 import re
 
-from enum import IntEnum
-import bleak_retry_connector
-
-from bleak import BleakClient
 from homeassistant.components import bluetooth
-from homeassistant.components.light import (ATTR_BRIGHTNESS, ATTR_RGB_COLOR, ATTR_EFFECT, ColorMode, LightEntity,
-                                            LightEntityFeature, ATTR_COLOR_TEMP_KELVIN)
+from homeassistant.components.light import (
+    ATTR_COLOR_TEMP_KELVIN,
+    ATTR_BRIGHTNESS,
+    ATTR_RGB_COLOR,
+    ATTR_EFFECT,
+    LightEntityFeature,
+    LightEntity,
+    ColorMode
+    )
 
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.storage import Store
 import homeassistant.util.color as color_util
+from homeassistant.core import HomeAssistant
 
+import bleak_retry_connector as brc
+from bleak import BleakClient
+
+from .govee_ble import GoveeBLE
 from .const import DOMAIN
-from pathlib import Path
-import json
-from .govee_utils import prepareMultiplePacketsData
-import base64
 from . import Hub
-from datetime import timedelta
 
 SCAN_INTERVAL = timedelta(seconds=30)
 
-
 _LOGGER = logging.getLogger(__name__)
 
-UUID_CONTROL_CHARACTERISTIC = '00010203-0405-0607-0809-0a0b0c0d2b11'
 EFFECT_PARSE = re.compile(r"\[(\d+)/(\d+)/(\d+)/(\d+)\]")
-SEGMENTED_MODELS = ['H6053', 'H6072', 'H6102', 'H6199', 'H617A', 'H617C']
-PERCENT_MODELS = ['H617A', 'H617C']
 
 class LedCommand(IntEnum):
     """ A control command packet's type. """
@@ -218,8 +226,8 @@ class GoveeBluetoothLight(LightEntity):
         """Initialize an bluetooth light."""
         self._mac = hub.address
         self._model = config_entry.data["model"]
-        self._is_segmented = self._model in SEGMENTED_MODELS
-        self._use_percent = self._model in PERCENT_MODELS
+        self._is_segmented = self._model in GoveeBLE.SEGMENTED_MODELS
+        self._use_percent = self._model in GoveeBLE.PERCENT_MODELS
         self._ble_device = ble_device
         self._state = None
         self._brightness = None
@@ -305,7 +313,7 @@ class GoveeBluetoothLight(LightEntity):
                 specialEffect = lightEffect['specialEffect'][specialEffectIndex]
 
                 # Prepare packets to send big payload in separated chunks
-                for command in prepareMultiplePacketsData(0xa3,
+                for command in GoveeBLE.prepareMultiplePacketsData(self, 0xa3,
                                                           array.array('B', [0x02]),
                                                           array.array('B',
                                                                       base64.b64decode(specialEffect['scenceParam'])
@@ -314,18 +322,18 @@ class GoveeBluetoothLight(LightEntity):
 
         for command in commands:
             client = await self._connectBluetooth()
-            await client.write_gatt_char(UUID_CONTROL_CHARACTERISTIC, command, False)
+            await client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC, command, False)
 
     async def async_turn_off(self, **kwargs) -> None:
         client = await self._connectBluetooth()
-        await client.write_gatt_char(UUID_CONTROL_CHARACTERISTIC,
+        await client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC,
                                      self._prepareSinglePacketData(LedCommand.POWER, [0x0]), False)
         self._state = False
 
     async def _connectBluetooth(self) -> BleakClient:
         for i in range(3):
             try:
-                client = await bleak_retry_connector.establish_connection(BleakClient, self._ble_device, self.unique_id)
+                client = await brc.establish_connection(BleakClient, self._ble_device, self.unique_id)
                 return client
             except:
                 continue
