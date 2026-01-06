@@ -8,7 +8,6 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 import logging
-import asyncio
 import base64
 import array
 import json
@@ -209,9 +208,6 @@ class GoveeBluetoothLight(LightEntity):
         self._state = False
         self._rgb_color = None
 
-        # Schedule the lights to update.
-        asyncio.get_running_loop().call_soon(self.async_update)
-
     @property
     def effect_list(self) -> list[str] | None:
         effect_list = []
@@ -248,27 +244,27 @@ class GoveeBluetoothLight(LightEntity):
         """Return true if light is on."""
         return self._state
 
-    async def async_update(self) -> None:
-        """ Used to update the light's status/ """
-
-        # Connect to the device.
-        try:
-            client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
-            self._attr_available = False
-        except:
-            self._attr_available = True
-
-        # Update the power status.
-        self._state = await GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.POWER)
-
-        # Update the brightness status.
-        self._brightness = GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.BRIGHTNESS)
-
-        if self._use_percent:
-            self._brightness = int(self._brightness * 255 / 100)
-
-        # Update the color status.
-        self._rgb_color = await GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.COLOR)
+    #async def async_update(self) -> None:
+    #    """ Used to update the light's status/ """
+    #
+    #    # Connect to the device.
+    #    try:
+    #        client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
+    #        self._attr_available = False
+    #    except:
+    #        self._attr_available = True
+    #
+    #    # Update the power status.
+    #    self._state = await GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.POWER)
+    #
+    #    # Update the brightness status.
+    #    self._brightness = GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.BRIGHTNESS)
+    #
+    #    if self._use_percent:
+    #        self._brightness = int(self._brightness * 255 / 100)
+    #
+    #    # Update the color status.
+    #    self._rgb_color = await GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.COLOR)
 
     async def async_turn_on(self, **kwargs) -> None:
         client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
