@@ -205,19 +205,29 @@ class GoveeBluetoothLight(LightEntity):
         self._is_segmented = self._model in GoveeBLE.SEGMENTED_MODELS
         self._use_percent = self._model in GoveeBLE.PERCENT_MODELS
         self._ble_device = ble_device
-        self._state = None
-        self._brightness = None
 
+        # Get the current event loop.
         loop = asyncio.get_running_loop()
-        client = asyncio.run_coroutine_threadsafe(GoveeBLE.connect_to(ble_device, self.unique_id), loop)
-        self._state = asyncio.run_coroutine_threadsafe(GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.POWER), loop)
 
-        # Initialize the lighting effects JSON data.
-        # json_data = 
+        # Connect to the device.
+        client = asyncio.run_coroutine_threadsafe(
+            GoveeBLE.connect_to(ble_device, self.unique_id),
+            loop)
 
-        # Pre-connect to the light entity to speed up initial state changes.
-        # Untested.
-        # _ = GoveeBLE.connect_to(self._ble_device, self.unique_id)
+        # Update the power status.
+        self._state = asyncio.run_coroutine_threadsafe(
+            GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.POWER),
+            loop)
+
+        # Update the brightness status.
+        self._brightness = int(asyncio.run_coroutine_threadsafe(
+            GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.BRIGHTNESS),
+            loop) * 255 / 100)
+
+        # Update the color status.
+        self._rgb_color = asyncio.run_coroutine_threadsafe(
+            GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.COLOR),
+            loop)
 
     @property
     def effect_list(self) -> list[str] | None:
