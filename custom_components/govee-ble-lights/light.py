@@ -189,13 +189,16 @@ class GoveeAPILight(LightEntity, dict):
         self._state = False
 
 class GoveeBluetoothLight(LightEntity):
-    _attr_color_mode = ColorMode.RGB
-    _attr_supported_color_modes = {ColorMode.RGB}
     _attr_supported_features = LightEntityFeature(
         LightEntityFeature.EFFECT | LightEntityFeature.FLASH | LightEntityFeature.TRANSITION)
+    _attr_supported_color_modes = {ColorMode.RGB}
+    _attr_color_mode = ColorMode.RGB
+    json_data = json.loads("{}")
 
     def __init__(self, hub: Hub, ble_device, config_entry: ConfigEntry) -> None:
         """Initialize an bluetooth light."""
+
+        # Initialize variables.
         self._mac = hub.address
         self._model = config_entry.data["model"]
         self._is_segmented = self._model in GoveeBLE.SEGMENTED_MODELS
@@ -203,6 +206,9 @@ class GoveeBluetoothLight(LightEntity):
         self._ble_device = ble_device
         self._state = None
         self._brightness = None
+
+        # Initialize the lighting effects JSON data.
+        json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())
 
     @property
     def effect_list(self) -> list[str] | None:
@@ -279,8 +285,7 @@ class GoveeBluetoothLight(LightEntity):
                 lightEffectIndex = int(search.group(3))
                 specialEffectIndex = int(search.group(4))
 
-                json_data = json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())
-                category = json_data['data']['categories'][categoryIndex]
+                category = self.json_data['data']['categories'][categoryIndex]
                 scene = category['scenes'][sceneIndex]
                 lightEffect = scene['lightEffects'][lightEffectIndex]
                 specialEffect = lightEffect['specialEffect'][specialEffectIndex]
