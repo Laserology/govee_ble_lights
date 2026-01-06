@@ -264,7 +264,7 @@ class GoveeBluetoothLight(LightEntity):
             await GoveeBLE.send_single_packet(
                 client,
                 GoveeBLE.LEDCommand.BRIGHTNESS, # Command
-                [self._brightness if self._use_percent else (self._brightness / 255) * 100]) # Data
+                [(self._brightness / 255) * 100 if self._use_percent else self._brightness]) # Data
 
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
