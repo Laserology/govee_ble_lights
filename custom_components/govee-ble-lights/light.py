@@ -268,7 +268,7 @@ class GoveeBluetoothLight(LightEntity):
             await GoveeBLE.send_single_packet(
                 client,
                 GoveeBLE.LEDCommand.BRIGHTNESS, # Command
-                [raw]) # Data
+                [self._brightness * 100 / 255 if self._use_percent else self._brightness]) # Data
 
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
@@ -313,3 +313,4 @@ class GoveeBluetoothLight(LightEntity):
     async def async_turn_off(self, **kwargs) -> None:
         client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
         await GoveeBLE.send_single_packet(client, GoveeBLE.LEDCommand.POWER, [0x0])
+        self._state = False
