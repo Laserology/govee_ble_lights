@@ -1,3 +1,8 @@
+"""
+This file contains all functionality pertaining to Govee BLE lights, including data structures.
+"""
+
+from enum import IntEnum
 import array
 
 class GoveeBLE:
@@ -5,11 +10,26 @@ class GoveeBLE:
     This class is used to connect to and control Govee branded BLE LED lights.
     """
 
+    class LEDCommand(IntEnum):
+        """ A control command packet's type. """
+        POWER = 0x01
+        BRIGHTNESS = 0x04
+        COLOR = 0x05
+
+    class LEDMode(IntEnum):
+        """
+        The mode in which a color change happens in. Only manual is supported.
+        """
+        MANUAL = 0x02
+        MICROPHONE = 0x06
+        SCENES = 0x05
+        SEGMENTS = 0x15
+
     UUID_CONTROL_CHARACTERISTIC = '00010203-0405-0607-0809-0a0b0c0d2b11'
     SEGMENTED_MODELS = ['H6053', 'H6072', 'H6102', 'H6199', 'H617A', 'H617C']
     PERCENT_MODELS = ['H617A', 'H617C']
 
-    def prepareMultiplePacketsData(self, protocol_type, header_array, data):
+    def prep_multi_packet(self, protocol_type, header_array, data):
         result = []
 
         # Initialize the initial buffer
@@ -66,6 +86,30 @@ class GoveeBLE:
         result.append(additional_buffer)
 
         return result
+
+    def prep_single_packet(self, cmd, payload):
+        if not isinstance(cmd, int):
+            raise ValueError('Invalid command')
+        if not isinstance(payload, bytes) and not (
+                isinstance(payload, list) and all(isinstance(x, int) for x in payload)):
+            raise ValueError('Invalid payload')
+        if len(payload) > 17:
+            raise ValueError('Payload too long')
+
+        cmd = cmd & 0xFF
+        payload = bytes(payload)
+
+        frame = bytes([0x33, cmd]) + bytes(payload)
+        # pad frame data to 19 bytes (plus checksum)
+        frame += bytes([0] * (19 - len(frame)))
+
+        # The checksum is calculated by XORing all data bytes
+        checksum = 0
+        for b in frame:
+            checksum ^= b
+
+        frame += bytes([checksum & 0xFF])
+        return frame
 
     def sign_payload(self, data):
         checksum = 0

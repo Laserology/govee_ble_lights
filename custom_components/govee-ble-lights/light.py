@@ -6,7 +6,6 @@ It only contains the basic methods, and uses govee_ble to talk to govee devices.
 from __future__ import annotations
 
 from datetime import timedelta
-from enum import IntEnum
 from pathlib import Path
 import logging
 import base64
@@ -43,23 +42,7 @@ _LOGGER = logging.getLogger(__name__)
 
 EFFECT_PARSE = re.compile(r"\[(\d+)/(\d+)/(\d+)/(\d+)\]")
 
-class LedCommand(IntEnum):
-    """ A control command packet's type. """
-    POWER = 0x01
-    BRIGHTNESS = 0x04
-    COLOR = 0x05
 
-
-class LedMode(IntEnum):
-    """
-    The mode in which a color change happens in.
-    
-    Currently only manual is supported.
-    """
-    MANUAL = 0x02
-    MICROPHONE = 0x06
-    SCENES = 0x05
-    SEGMENTS = 0x15
 
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
@@ -270,7 +253,7 @@ class GoveeBluetoothLight(LightEntity):
         return self._state
 
     async def async_turn_on(self, **kwargs) -> None:
-        commands = [self._prepareSinglePacketData(LedCommand.POWER, [0x1])]
+        commands = [GoveeBLE.prep_single_packet(self, GoveeBLE.LEDCommand.POWER, [0x1])]
 
         self._state = True
 
@@ -279,20 +262,20 @@ class GoveeBluetoothLight(LightEntity):
             # Some models require a percentage instead of the raw value of a byte.
             if self._use_percent:
                 brightnessPercent = int(brightness * 100 / 255)
-                commands.append(self._prepareSinglePacketData(LedCommand.BRIGHTNESS, [brightnessPercent]))
+                commands.append(GoveeBLE.prep_single_packet(self, GoveeBLE.LEDCommand.BRIGHTNESS, [brightnessPercent]))
             else:
-                commands.append(self._prepareSinglePacketData(LedCommand.BRIGHTNESS, [brightness]))
+                commands.append(GoveeBLE.prep_single_packet(self, GoveeBLE.LEDCommand.BRIGHTNESS, [brightness]))
             self._brightness = brightness
 
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
 
             if self._is_segmented:
-                commands.append(self._prepareSinglePacketData(LedCommand.COLOR,
-                                                              [LedMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00,
+                commands.append(self._prepareSinglePacketData(GoveeBLE.LEDCommand.COLOR,
+                                                              [GoveeBLE.LEDMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00,
                                                                0x00, 0x00, 0xFF, 0x7F]))
             else:
-                commands.append(self._prepareSinglePacketData(LedCommand.COLOR, [LedMode.MANUAL, red, green, blue]))
+                commands.append(self._prepareSinglePacketData(GoveeBLE.LEDCommand.COLOR, [GoveeBLE.LEDMode.MANUAL, red, green, blue]))
 
             self._rgb_color = (red, green, blue)
         if ATTR_EFFECT in kwargs:
@@ -327,7 +310,7 @@ class GoveeBluetoothLight(LightEntity):
     async def async_turn_off(self, **kwargs) -> None:
         client = await self._connectBluetooth()
         await client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC,
-                                     self._prepareSinglePacketData(LedCommand.POWER, [0x0]), False)
+                                     GoveeBLE.prep_single_packet(self, GoveeBLE.LEDCommand.POWER, [0x0]), False)
         self._state = False
 
     async def _connectBluetooth(self) -> BleakClient:
@@ -337,27 +320,3 @@ class GoveeBluetoothLight(LightEntity):
                 return client
             except:
                 continue
-
-    def _prepareSinglePacketData(self, cmd, payload):
-        if not isinstance(cmd, int):
-            raise ValueError('Invalid command')
-        if not isinstance(payload, bytes) and not (
-                isinstance(payload, list) and all(isinstance(x, int) for x in payload)):
-            raise ValueError('Invalid payload')
-        if len(payload) > 17:
-            raise ValueError('Payload too long')
-
-        cmd = cmd & 0xFF
-        payload = bytes(payload)
-
-        frame = bytes([0x33, cmd]) + bytes(payload)
-        # pad frame data to 19 bytes (plus checksum)
-        frame += bytes([0] * (19 - len(frame)))
-
-        # The checksum is calculated by XORing all data bytes
-        checksum = 0
-        for b in frame:
-            checksum ^= b
-
-        frame += bytes([checksum & 0xFF])
-        return frame
