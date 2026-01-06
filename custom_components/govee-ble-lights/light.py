@@ -261,7 +261,7 @@ class GoveeBluetoothLight(LightEntity):
             self._brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
 
             # Some models require a percentage instead of the raw value of a byte.
-            GoveeBLE.send_single_packet(
+            await GoveeBLE.send_single_packet(
                 client,
                 GoveeBLE.LEDCommand.BRIGHTNESS, # Command
                 [self._brightness if self._use_percent else (self._brightness / 255) * 100]) # Data
@@ -270,12 +270,12 @@ class GoveeBluetoothLight(LightEntity):
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
 
             if self._is_segmented:
-                GoveeBLE.send_single_packet(
+                await GoveeBLE.send_single_packet(
                     client,
                     GoveeBLE.LEDCommand.COLOR, # Command
                     [GoveeBLE.LEDMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x7F]) # Data
             else:
-                GoveeBLE.send_single_packet(
+                await GoveeBLE.send_single_packet(
                     client,
                     GoveeBLE.LEDCommand.COLOR, # Command
                     [GoveeBLE.LEDMode.MANUAL, red, green, blue]) # Data
