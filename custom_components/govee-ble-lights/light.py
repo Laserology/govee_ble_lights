@@ -254,7 +254,7 @@ class GoveeBluetoothLight(LightEntity):
         client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
 
         # Initial command to turn on the light device.
-        GoveeBLE.send_single_packet(client, GoveeBLE.LEDCommand.POWER, [0x1])
+        await GoveeBLE.send_single_packet(client, GoveeBLE.LEDCommand.POWER, [0x1])
         self._state = True
 
         if ATTR_BRIGHTNESS in kwargs:
