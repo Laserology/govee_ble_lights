@@ -286,13 +286,13 @@ class GoveeBluetoothLight(LightEntity):
                 specialEffect = lightEffect['specialEffect'][specialEffectIndex]
 
                 # Create a client handle for contacting the device.
-                client = GoveeBLE.connect_to(self, self._ble_device, self.unique_id)
+                client = GoveeBLE.connect_to(self._ble_device, self.unique_id)
 
                 # Prepare packets to send big payload in separated chunks
-                GoveeBLE.send_multi_packet(self, client, 0xa3,
+                GoveeBLE.send_multi_packet(client, 0xa3,
                     array.array('B', [0x02]),
                     array.array('B', base64.b64decode(specialEffect['scenceParam'])))
 
     async def async_turn_off(self, **kwargs) -> None:
-        client = await GoveeBLE.connect_to(self, self._ble_device, self.unique_id)
-        GoveeBLE.send_single_packet(self, client, GoveeBLE.LEDCommand.POWER, [0x0])
+        client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
+        GoveeBLE.send_single_packet(client, GoveeBLE.LEDCommand.POWER, [0x0])
