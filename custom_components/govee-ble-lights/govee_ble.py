@@ -125,7 +125,7 @@ class GoveeBLE(object):
         for b in frame:
             checksum ^= b
 
-        frame += GoveeBLE.sign_payload(frame)
+        frame += bytes([GoveeBLE.sign_payload(frame)])
 
         GoveeBLE.send_single_frame(client, frame)
 
