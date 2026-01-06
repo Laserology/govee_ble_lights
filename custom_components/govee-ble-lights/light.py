@@ -21,29 +21,20 @@ from homeassistant.components.light import (
     ATTR_EFFECT,
     LightEntityFeature,
     LightEntity,
-    ColorMode
-    )
+    ColorMode)
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.storage import Store
 import homeassistant.util.color as color_util
 from homeassistant.core import HomeAssistant
 
-import bleak_retry_connector as brc
-from bleak import BleakClient
-
 from .govee_ble import GoveeBLE
 from .const import DOMAIN
 from . import Hub
 
-SCAN_INTERVAL = timedelta(seconds=30)
-
-_LOGGER = logging.getLogger(__name__)
-
 EFFECT_PARSE = re.compile(r"\[(\d+)/(\d+)/(\d+)/(\d+)\]")
-
-
-
+_LOGGER = logging.getLogger(__name__)
+SCAN_INTERVAL = timedelta(seconds=30)
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
     if config_entry.entry_id in hass.data[DOMAIN]:
@@ -60,7 +51,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
     elif hub.address is not None:
         ble_device = bluetooth.async_ble_device_from_address(hass, hub.address.upper(), False)
         async_add_entities([GoveeBluetoothLight(hub, ble_device, config_entry)])
-
 
 class GoveeAPILight(LightEntity, dict):
     _attr_color_mode = ColorMode.RGB
@@ -198,7 +188,6 @@ class GoveeAPILight(LightEntity, dict):
         await self.hub.api.toggle_power(self.sku, self.device, 0)
         self._state = False
 
-
 class GoveeBluetoothLight(LightEntity):
     _attr_color_mode = ColorMode.RGB
     _attr_supported_color_modes = {ColorMode.RGB}
@@ -253,31 +242,32 @@ class GoveeBluetoothLight(LightEntity):
         return self._state
 
     async def async_turn_on(self, **kwargs) -> None:
-        commands = [GoveeBLE.prep_single_packet(self, GoveeBLE.LEDCommand.POWER, [0x1])]
+        commands = [[GoveeBLE.LEDCommand.POWER, [0x1]]]
 
         self._state = True
 
         if ATTR_BRIGHTNESS in kwargs:
-            brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
+            self._brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
             # Some models require a percentage instead of the raw value of a byte.
-            if self._use_percent:
-                brightnessPercent = int(brightness * 100 / 255)
-                commands.append(GoveeBLE.prep_single_packet(self, GoveeBLE.LEDCommand.BRIGHTNESS, [brightnessPercent]))
-            else:
-                commands.append(GoveeBLE.prep_single_packet(self, GoveeBLE.LEDCommand.BRIGHTNESS, [brightness]))
-            self._brightness = brightness
+
+            commands.append([
+                GoveeBLE.LEDCommand.BRIGHTNESS,
+                [self._brightness if self._use_percent else (self._brightness / 255) * 100]])
 
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
 
             if self._is_segmented:
-                commands.append(self._prepareSinglePacketData(GoveeBLE.LEDCommand.COLOR,
-                                                              [GoveeBLE.LEDMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00,
-                                                               0x00, 0x00, 0xFF, 0x7F]))
+                commands.append([
+                    GoveeBLE.LEDCommand.COLOR,
+                    [GoveeBLE.LEDMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x7F]])
             else:
-                commands.append(self._prepareSinglePacketData(GoveeBLE.LEDCommand.COLOR, [GoveeBLE.LEDMode.MANUAL, red, green, blue]))
+                commands.append([
+                    GoveeBLE.LEDCommand.COLOR,
+                    [GoveeBLE.LEDMode.MANUAL, red, green, blue]])
 
             self._rgb_color = (red, green, blue)
+
         if ATTR_EFFECT in kwargs:
             effect = kwargs.get(ATTR_EFFECT)
             if len(effect) > 0:
@@ -295,28 +285,14 @@ class GoveeBluetoothLight(LightEntity):
                 lightEffect = scene['lightEffects'][lightEffectIndex]
                 specialEffect = lightEffect['specialEffect'][specialEffectIndex]
 
-                # Prepare packets to send big payload in separated chunks
-                for command in GoveeBLE.prepareMultiplePacketsData(self, 0xa3,
-                                                          array.array('B', [0x02]),
-                                                          array.array('B',
-                                                                      base64.b64decode(specialEffect['scenceParam'])
-                                                                      )):
-                    commands.append(command)
+                # Create a client handle for contacting the device.
+                client = GoveeBLE.connect_to(self, self._ble_device, self.unique_id)
 
-        for command in commands:
-            client = await self._connectBluetooth()
-            await client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC, command, False)
+                # Prepare packets to send big payload in separated chunks
+                GoveeBLE.send_multi_packet(self, client, 0xa3,
+                    array.array('B', [0x02]),
+                    array.array('B', base64.b64decode(specialEffect['scenceParam'])))
 
     async def async_turn_off(self, **kwargs) -> None:
-        client = await self._connectBluetooth()
-        await client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC,
-                                     GoveeBLE.prep_single_packet(self, GoveeBLE.LEDCommand.POWER, [0x0]), False)
-        self._state = False
-
-    async def _connectBluetooth(self) -> BleakClient:
-        for i in range(3):
-            try:
-                client = await brc.establish_connection(BleakClient, self._ble_device, self.unique_id)
-                return client
-            except:
-                continue
+        client = await GoveeBLE.connect_to(self, self._ble_device, self.unique_id)
+        GoveeBLE.send_single_packet(self, client, GoveeBLE.LEDCommand.POWER, [0x0])

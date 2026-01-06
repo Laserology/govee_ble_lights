@@ -5,6 +5,9 @@ This file contains all functionality pertaining to Govee BLE lights, including d
 from enum import IntEnum
 import array
 
+from bleak import BleakClient
+import bleak_retry_connector as brc
+
 class GoveeBLE:
     """
     This class is used to connect to and control Govee branded BLE LED lights.
@@ -29,7 +32,12 @@ class GoveeBLE:
     SEGMENTED_MODELS = ['H6053', 'H6072', 'H6102', 'H6199', 'H617A', 'H617C']
     PERCENT_MODELS = ['H617A', 'H617C']
 
-    def prep_multi_packet(self, protocol_type, header_array, data):
+    def send_multi_packet(self, client, protocol_type, header_array, data):
+        """
+        Creates a multi-packed packet.
+        Later this should be converted into a direct send method to reduce repeating code in light.py.
+        """
+
         result = []
 
         # Initialize the initial buffer
@@ -85,9 +93,15 @@ class GoveeBLE:
         additional_buffer[19] = self.sign_payload(additional_buffer[0:19])
         result.append(additional_buffer)
 
-        return result
+        for r in result:
+            self.send_single_frame(client, r)
 
-    def prep_single_packet(self, cmd, payload):
+    def send_single_packet(self, client, cmd, payload):
+        """
+        Creates, signs, and sends a complete BLE packet to the device.
+        Functions according to the input command and payload.
+        """
+
         if not isinstance(cmd, int):
             raise ValueError('Invalid command')
         if not isinstance(payload, bytes) and not (
@@ -108,10 +122,26 @@ class GoveeBLE:
         for b in frame:
             checksum ^= b
 
-        frame += bytes([checksum & 0xFF])
-        return frame
+        frame += self.sign_payload(frame)
+
+        self.send_single_frame(client, frame)
+
+    async def send_single_frame(self, client, frame):
+        """
+        Sends a pre-made BLE frame to the device.v
+        """
+        client.write_gatt_char(self.UUID_CONTROL_CHARACTERISTIC, frame, False)
+
+    async def connect_to(self, device, identifier):
+        """" This method connects to and returns a handle for the target BLE device. """
+        for _ in range(3):
+            try:
+                return await brc.establish_connection(BleakClient, device, identifier)
+            except:
+                continue
 
     def sign_payload(self, data):
+        """ 'Signs' a payload. Not sure what it does. """
         checksum = 0
         for b in data:
             checksum ^= b
