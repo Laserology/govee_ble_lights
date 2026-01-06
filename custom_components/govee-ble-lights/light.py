@@ -317,5 +317,6 @@ class GoveeBluetoothLight(LightEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         """ Async command to entirely turn off a light object. """
-        await GoveeBLE.send_single(self, self._ble_device, self.unique_id, GoveeBLE.LEDCommand.POWER, [0x0], False)
+        command = [GoveeBLE.prepare_packet(self, GoveeBLE.LEDCommand.POWER, [0x0])]
+        await GoveeBLE.send_single(self, self._ble_device, self.unique_id, command, False)
         self._state = False
