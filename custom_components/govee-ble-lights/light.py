@@ -210,11 +210,14 @@ class GoveeBluetoothLight(LightEntity):
         # Initialize the lighting effects JSON data.
         json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())
 
+        # Pre-connect to the light entity to speed up initial state changes.
+        # Untested.
+        _ = GoveeBLE.connect_to(self._ble_device, self.unique_id)
+
     @property
     def effect_list(self) -> list[str] | None:
         effect_list = []
-        json_data = json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())
-        for categoryIdx, category in enumerate(json_data['data']['categories']):
+        for categoryIdx, category in enumerate(self.json_data['data']['categories']):
             for sceneIdx, scene in enumerate(category['scenes']):
                 for leffectIdx, lightEffect in enumerate(scene['lightEffects']):
                     for seffectIxd, specialEffect in enumerate(lightEffect['specialEffect']):
@@ -248,29 +251,34 @@ class GoveeBluetoothLight(LightEntity):
         return self._state
 
     async def async_turn_on(self, **kwargs) -> None:
-        commands = [[GoveeBLE.LEDCommand.POWER, [0x1]]]
+        client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
 
+        # Initial command to turn on the light device.
+        GoveeBLE.send_single_packet(client, GoveeBLE.LEDCommand.POWER, [0x1])
         self._state = True
 
         if ATTR_BRIGHTNESS in kwargs:
             self._brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
-            # Some models require a percentage instead of the raw value of a byte.
 
-            commands.append([
-                GoveeBLE.LEDCommand.BRIGHTNESS,
-                [self._brightness if self._use_percent else (self._brightness / 255) * 100]])
+            # Some models require a percentage instead of the raw value of a byte.
+            GoveeBLE.send_single_packet(
+                client,
+                GoveeBLE.LEDCommand.BRIGHTNESS, # Command
+                [self._brightness if self._use_percent else (self._brightness / 255) * 100]) # Data
 
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
 
             if self._is_segmented:
-                commands.append([
-                    GoveeBLE.LEDCommand.COLOR,
-                    [GoveeBLE.LEDMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x7F]])
+                GoveeBLE.send_single_packet(
+                    client,
+                    GoveeBLE.LEDCommand.COLOR, # Command
+                    [GoveeBLE.LEDMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x7F]) # Data
             else:
-                commands.append([
-                    GoveeBLE.LEDCommand.COLOR,
-                    [GoveeBLE.LEDMode.MANUAL, red, green, blue]])
+                GoveeBLE.send_single_packet(
+                    client,
+                    GoveeBLE.LEDCommand.COLOR, # Command
+                    [GoveeBLE.LEDMode.MANUAL, red, green, blue]) # Data
 
             self._rgb_color = (red, green, blue)
 
