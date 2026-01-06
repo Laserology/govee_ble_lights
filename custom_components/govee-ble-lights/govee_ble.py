@@ -33,7 +33,7 @@ class GoveeBLE(object):
     PERCENT_MODELS = ['H617A', 'H617C']
 
     @staticmethod
-    def send_multi_packet(client, protocol_type, header_array, data):
+    async def send_multi_packet(client, protocol_type, header_array, data):
         """
         Creates a multi-packed packet.
         """
@@ -96,10 +96,10 @@ class GoveeBLE(object):
         result.append(additional_buffer)
 
         for r in result:
-            GoveeBLE.send_single_frame(client, r)
+            await GoveeBLE.send_single_frame(client, r)
 
     @staticmethod
-    def send_single_packet(client, cmd, payload):
+    async def send_single_packet(client, cmd, payload):
         """
         Creates, signs, and sends a complete BLE packet to the device.
         Functions according to the input command and payload.
@@ -127,14 +127,14 @@ class GoveeBLE(object):
 
         frame += bytes([GoveeBLE.sign_payload(frame)])
 
-        GoveeBLE.send_single_frame(client, frame)
+        await GoveeBLE.send_single_frame(client, frame)
 
     @staticmethod
     async def send_single_frame(client, frame):
         """
         Sends a pre-made BLE frame to the device.v
         """
-        client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC, frame, False)
+        await client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC, frame, False)
 
     @staticmethod
     async def connect_to(device, identifier):
