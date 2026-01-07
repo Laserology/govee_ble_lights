@@ -195,6 +195,8 @@ class GoveeBluetoothLight(LightEntity):
     _attr_supported_color_modes = {ColorMode.RGB}
     _attr_color_mode = ColorMode.RGB
 
+    _client = None
+
     def __init__(self, hub: Hub, ble_device, config_entry: ConfigEntry) -> None:
         """Initialize a bluetooth light."""
 
@@ -267,10 +269,11 @@ class GoveeBluetoothLight(LightEntity):
     #    self._rgb_color = await GoveeBLE.read_attribute(client, GoveeBLE.LEDCommand.COLOR)
 
     async def async_turn_on(self, **kwargs) -> None:
-        client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
+        if self._client is None:
+            self._client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
 
         # Initial command to turn on the light device.
-        await GoveeBLE.send_single_packet(client, GoveeBLE.LEDCommand.POWER, [0x1])
+        await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.POWER, [0x1])
         self._state = True
 
         if ATTR_BRIGHTNESS in kwargs:
@@ -282,7 +285,7 @@ class GoveeBluetoothLight(LightEntity):
 
             # Some models require a percentage instead of the raw value of a byte.
             await GoveeBLE.send_single_packet(
-                client,
+                self._client,
                 GoveeBLE.LEDCommand.BRIGHTNESS, # Command
                 [int(self._brightness * 100 / 255) if self._use_percent else self._brightness]) # Data
 
@@ -291,12 +294,12 @@ class GoveeBluetoothLight(LightEntity):
 
             if self._is_segmented:
                 await GoveeBLE.send_single_packet(
-                    client,
+                    self._client,
                     GoveeBLE.LEDCommand.COLOR, # Command
                     [GoveeBLE.LEDMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x7F]) # Data
             else:
                 await GoveeBLE.send_single_packet(
-                    client,
+                    self._client,
                     GoveeBLE.LEDCommand.COLOR, # Command
                     [GoveeBLE.LEDMode.MANUAL, red, green, blue]) # Data
 
@@ -322,11 +325,13 @@ class GoveeBluetoothLight(LightEntity):
                 client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
 
                 # Prepare packets to send big payload in separated chunks
-                await GoveeBLE.send_multi_packet(client, 0xa3,
+                await GoveeBLE.send_multi_packet(self._client, 0xa3,
                     array.array('B', [0x02]),
                     array.array('B', base64.b64decode(specialEffect['scenceParam'])))
 
     async def async_turn_off(self, **kwargs) -> None:
-        client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
-        await GoveeBLE.send_single_packet(client, GoveeBLE.LEDCommand.POWER, [0x0])
+        if self._client is None:
+            self._client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
+
+        await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.POWER, [0x0])
         self._state = False

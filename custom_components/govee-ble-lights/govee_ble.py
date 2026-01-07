@@ -128,8 +128,15 @@ class GoveeBLE:
         await GoveeBLE.send_single_frame(client, frame)
 
     @staticmethod
-    async def send_single_frame(client: BleakClient, frame):
+    async def send_single_frame(client: BleakClient, frame) -> None:
         """ Sends a pre-made BLE frame to the device. """
+        retry = 0
+        while not client.is_connected:
+            if retry >= 3:
+                raise TimeoutError
+            await client.connect()
+            retry += 1
+
         await client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC, frame, False)
 
     @staticmethod
