@@ -18,7 +18,6 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[str] = ["light"]
 
-
 class Hub:
     def __init__(self, api: GoveeAPI | None, address: str = None, devices: list = None) -> None:
         """Init Govee dummy hub."""
@@ -26,12 +25,10 @@ class Hub:
         self.devices = devices
         self.address = address
 
-
 async def async_setup_api(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up Govee API"""
     assert config_entry.data.get(CONF_API_KEY) is not None
     hass.async_create_task(internal_api_setup(hass, config_entry))
-
 
 async def internal_api_setup(hass: HomeAssistant, entry: ConfigEntry):
     api_key = entry.data.get(CONF_API_KEY)
@@ -44,9 +41,7 @@ async def internal_api_setup(hass: HomeAssistant, entry: ConfigEntry):
     await store.async_save(devices)
     await internal_cache_setup(hass, api, entry, devices)
 
-
 UNIQUE_DEVICES = {}
-
 
 async def internal_cache_setup(
         hass: HomeAssistant, api: GoveeAPI, entry: ConfigEntry, devices: list = None

@@ -8,9 +8,11 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 import logging
+#import asyncio
 import base64
 import array
 import json
+#import time
 import re
 
 from homeassistant.components import bluetooth
@@ -210,6 +212,10 @@ class GoveeBluetoothLight(LightEntity):
         self._state = False
         self._rgb_color = None
 
+        # Ensure stable connection with reconnect loop.
+        # loop = asyncio.get_running_loop()
+        # loop.create_task(self.ensure_connection)
+
     @property
     def effect_list(self) -> list[str] | None:
         effect_list = []
@@ -279,10 +285,6 @@ class GoveeBluetoothLight(LightEntity):
         if ATTR_BRIGHTNESS in kwargs:
             self._brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
 
-            raw = self._brightness
-            if self._use_percent:
-                raw = (raw / 255) * 100
-
             # Some models require a percentage instead of the raw value of a byte.
             await GoveeBLE.send_single_packet(
                 self._client,
@@ -335,3 +337,21 @@ class GoveeBluetoothLight(LightEntity):
 
         await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.POWER, [0x0])
         self._state = False
+
+    #
+    #async def ensure_connection(self) -> None:
+    #    """
+    #    This method is used in the background to ensure the BLE device maintains connection.
+    #    Without it, the device may lose connection and cause errors when a state change is requested.
+    #    """
+
+    #    while True:
+    #        if self._client is None or self._client.is_connected:
+    #            time.sleep(1.0)
+    #            continue
+    #        else:
+    #            try:
+    #                self._client.connect()
+    #            except:
+    #                time.sleep(1.0)
+    #                continue
