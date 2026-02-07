@@ -1,112 +1,48 @@
-# Ultimate BLE Lighting Control Integration for HomeAssistant
-![Home Assistant](https://img.shields.io/badge/home%20assistant-%2341BDF5.svg?style=for-the-badge&logo=home-assistant&logoColor=white)
-[![hacs](https://img.shields.io/badge/HACS-Integration-blue.svg?style=for-the-badge)](https://github.com/hacs/integration)
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
-<img src="assets/govee-logo.png" alt="Govee Logo" width="125">
+# Govee BLE Lights for Home Assistant
 
-A powerful and seamless integration to control your Govee lighting devices via Govee API or BLE directly from HomeAssistant.
-This repository includes the source from the orignal BLE control reposityory, as well as patches from [cralex96](https://github.com/cralex96/govee_ble_lights) and [Rombond](https://github.com/Rombond/h617a_govee_ble_lights), credit to them for their work.
+[![CI](https://github.com/teh-hippo/govee_ble_lights/actions/workflows/ci.yml/badge.svg)](https://github.com/teh-hippo/govee_ble_lights/actions/workflows/ci.yml)
 
-Here is a compatability table of different light models.
+A Home Assistant custom integration for controlling Govee LED strips via Bluetooth Low Energy (BLE).
 
-| Model | Change Color | Change Brightness | On/Off |
-|-------|--------------|-------------------|--------|
-| H617A | ✅           | ✅                | ✅     |
-| H617C | ✅           | ✅                | ✅     |
-| more..| ✅           | ✅                | ✅     |
+## Supported Devices
 
-Segmented lighting is currently not supported.
-
----
-
-## Table of Contents
-
-- [Features](#features)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Support & Contribution](#support--contribution)
-- [License](#license)
-
----
+| Model | Name |
+|-------|------|
+| H617A | LED Strip |
 
 ## Features
 
-- 🚀 **Direct BLE Control**: No need for middlewares or bridges. Connect and control your Govee devices directly through Bluetooth Low Energy.
+- **On/Off** control
+- **Brightness** adjustment (0-100%)
+- **RGB Color** — full color control via segmented BLE mode
+- **Color Temperature** — 2000K–9000K (converted to RGB)
+- **Scenes** — sunrise, sunset, movie, dating, romantic, blinking, candlelight, snowflake, rainbow
+- **BLE Auto-Discovery** — automatically detects Govee devices nearby
 
-- ☁️ **API Control**: Supported all light devices with full features support including scenes!
+## Installation (HACS)
 
-- 🌈 **Scene Selection**: Leverage the full potential of your Govee lights by choosing from all available scenes, transforming the ambiance of your room instantly.
-  
-- 💡 **Comprehensive Lighting Control**: Adjust brightness, change colors, or switch on/off with ease.
-
----
-
-## Installation
-
-- 1: (Install HACS (Home assistant comunity repository))[https://hacs.xyz/docs/use/]
-- 2: Find the "Ultimate gove BLE lights control" plugin from the HACS side menu
-- 3: Enjoy.
+1. Open HACS in Home Assistant
+2. Click the three dots menu → **Custom repositories**
+3. Add `https://github.com/teh-hippo/govee_ble_lights` as an **Integration**
+4. Search for "Govee BLE Lights" and install
+5. Restart Home Assistant
 
 ## Configuration
 
-### What is needed
+Once installed, the integration will automatically discover nearby Govee BLE devices. You can also add devices manually:
 
-For Direct BLE Control:
-- Before you begin, make certain HomeAssistant can access BLE on your platform. Ensure your HomeAssistant instance is granted permissions to utilize the Bluetooth Low Energy of your host machine.
+1. Go to **Settings → Devices & Services → Add Integration**
+2. Search for "Govee BLE Lights"
+3. Enter the BLE address and select the device model
 
-For Govee API Control:
-- Retrieve Govee-API-Key as described [here](https://developer.govee.com/reference/apply-you-govee-api-key), setup integration with API type ad fill your API key.
+## BLE Troubleshooting
 
-## Usage
-
-With the integration setup, your Govee devices will appear as entities within HomeAssistant. All you need to do is select your device model when adding it.
-
----
-
-## Troubleshooting for BLE
-
-If you're facing issues with the integration, consider the following steps:
-
-1. **Check BLE Connection**: 
-   
-   Ensure that the Govee device is within the Bluetooth range of your HomeAssistant host machine.
-
-2. **Model Check**:
-
-   Check that you selected correct device model.
-
-3. **Logs**:
-
-   HomeAssistant logs can provide insights into any issues. Navigate to `Configuration > Logs` to review any error messages related to the Govee integration.
-
----
-
-## Support & Contribution
-
-- **Found an Issue?** 
-   
-   Raise it in the [Issues section](https://github.com/Laserology/govee_ble_lights/issues) of this repository.
-
-- **Device support**:
-
-   Almost every Govee device has its own BLE message protocol. If you find a model that doesn't work or has bugs, please report an issue here.
-
-- **Contributions**:
-
-   We welcome community contributions! If you'd like to improve the integration or add new features, please fork the repository and submit a pull request.
-
----
-
-## Future Plans
-
-We aim to continuously improve this integration by:
-
-- Supporting more Govee device models for BLE
-- Enhancing the overall user experience and stability
-
----
+- Ensure your Home Assistant host has a Bluetooth adapter
+- The device must be within BLE range (~10m line of sight)
+- Only one controller can be connected to a BLE device at a time — close the Govee app before using HA
+- If the device is unresponsive, power cycle it and restart HA
+- Check **Settings → System → Logs** for BLE connection errors
 
 ## License
 
-This project is under the MIT License. For full license details, please refer to the [LICENSE file](https://github.com/Beshelmek/govee_ble_lights/blob/main/LICENSE) in this repository.
+MIT

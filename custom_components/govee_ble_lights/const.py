@@ -1,4 +1,6 @@
 DOMAIN = "govee_ble_lights"
-CONF_TYPE = "type"
-CONF_TYPE_API = 'API'
-CONF_TYPE_BLE = 'BLE'
+CONF_MODEL = "model"
+
+SUPPORTED_MODELS = {
+    "H617A": {"name": "H617A LED Strip", "segments": 15, "brightness_pct": True},
+}

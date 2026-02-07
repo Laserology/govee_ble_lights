@@ -1,355 +1,152 @@
+"""Light entity for Govee BLE Lights."""
+
 from __future__ import annotations
 
-import array
 import logging
-import re
+from typing import Any
 
-from enum import IntEnum
-import bleak_retry_connector
-
-from bleak import BleakClient
-from homeassistant.components import bluetooth
-from homeassistant.components.light import (ATTR_BRIGHTNESS, ATTR_RGB_COLOR, ATTR_EFFECT, ColorMode, LightEntity,
-                                            LightEntityFeature, ATTR_COLOR_TEMP_KELVIN)
-
-from homeassistant.core import HomeAssistant
+from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
+    ATTR_COLOR_TEMP_KELVIN,
+    ATTR_EFFECT,
+    ATTR_RGB_COLOR,
+    ColorMode,
+    LightEntity,
+    LightEntityFeature,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.storage import Store
-import homeassistant.util.color as color_util
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from pathlib import Path
-import json
-from .govee_utils import prepareMultiplePacketsData
-import base64
-from . import Hub
-from datetime import timedelta
-
-SCAN_INTERVAL = timedelta(seconds=30)
-
+from .coordinator import GoveeBLECoordinator
+from .protocol import (
+    SCENE_IDS,
+    build_brightness,
+    build_color_rgb,
+    build_color_temp,
+    build_power,
+    build_scene,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-UUID_CONTROL_CHARACTERISTIC = '00010203-0405-0607-0809-0a0b0c0d2b11'
-EFFECT_PARSE = re.compile(r"\[(\d+)/(\d+)/(\d+)/(\d+)\]")
-SEGMENTED_MODELS = ['H6053', 'H6072', 'H6102', 'H6199', 'H617A', 'H617C']
-PERCENT_MODELS = ['H617A', 'H617C']
-
-class LedCommand(IntEnum):
-    """ A control command packet's type. """
-    POWER = 0x01
-    BRIGHTNESS = 0x04
-    COLOR = 0x05
+# Color temp range (Kelvin)
+MIN_COLOR_TEMP_KELVIN = 2000
+MAX_COLOR_TEMP_KELVIN = 9000
 
 
-class LedMode(IntEnum):
-    """
-    The mode in which a color change happens in.
-    
-    Currently only manual is supported.
-    """
-    MANUAL = 0x02
-    MICROPHONE = 0x06
-    SCENES = 0x05
-    SEGMENTS = 0x15
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Govee BLE light from a config entry."""
+    coordinator: GoveeBLECoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    async_add_entities([GoveeBLELight(coordinator, config_entry)])
 
 
-async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
-    if config_entry.entry_id in hass.data[DOMAIN]:
-        hub: Hub = hass.data[DOMAIN][config_entry.entry_id]
-    else:
-        return
+class GoveeBLELight(CoordinatorEntity[GoveeBLECoordinator], LightEntity):
+    """Representation of a Govee BLE light."""
 
-    if hub.devices is not None:
-        devices = hub.devices
-        for device in devices:
-            if device['type'] == 'devices.types.light':
-                _LOGGER.info("Adding device: %s", device)
-                async_add_entities([GoveeAPILight(hub, device)])
-    elif hub.address is not None:
-        ble_device = bluetooth.async_ble_device_from_address(hass, hub.address.upper(), False)
-        async_add_entities([GoveeBluetoothLight(hub, ble_device, config_entry)])
+    _attr_has_entity_name = True
+    _attr_name = None
+    _attr_supported_color_modes = {ColorMode.RGB, ColorMode.COLOR_TEMP, ColorMode.ONOFF}
+    _attr_supported_features = LightEntityFeature.EFFECT
+    _attr_min_color_temp_kelvin = MIN_COLOR_TEMP_KELVIN
+    _attr_max_color_temp_kelvin = MAX_COLOR_TEMP_KELVIN
 
-
-class GoveeAPILight(LightEntity, dict):
-    _attr_color_mode = ColorMode.RGB
-
-    def __init__(self, hub: Hub, device: dict) -> None:
-        """Initialize an API light."""
-        super().__init__()
-
-        self.hub = hub
-
-        self._state = None
-        self._brightness = None
-
-        self.device_data = device
-        self.sku = self.device_data["sku"]
-        self.device = self.device_data["device"]
-
-        self._attr_name = device["deviceName"]
-
-        color_modes: set[ColorMode] = set()
-
-        for cap in device["capabilities"]:
-            if cap['instance'] == 'powerSwitch':
-                color_modes.add(ColorMode.ONOFF)
-            if cap['instance'] == 'brightness':
-                color_modes.add(ColorMode.BRIGHTNESS)
-            if cap['instance'] == 'colorTemperatureK':
-                color_modes.add(ColorMode.COLOR_TEMP)
-                self._attr_min_color_temp_kelvin = cap['parameters']['range']['min']
-                self._attr_max_color_temp_kelvin = cap['parameters']['range']['max']
-                self._attr_min_mireds = color_util.color_temperature_kelvin_to_mired(self._attr_min_color_temp_kelvin)
-                self._attr_max_mireds = color_util.color_temperature_kelvin_to_mired(self._attr_max_color_temp_kelvin)
-            if cap['instance'] == 'colorRgb':
-                color_modes.add(ColorMode.RGB)
-            if cap['instance'] == 'lightScene':
-                self._attr_supported_features = LightEntityFeature(
-                    LightEntityFeature.EFFECT | LightEntityFeature.FLASH | LightEntityFeature.TRANSITION
-                )
-
-        if ColorMode.ONOFF in color_modes:
-            self._attr_supported_color_modes = {ColorMode.ONOFF}
-        if ColorMode.BRIGHTNESS in color_modes:
-            self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
-        if ColorMode.COLOR_TEMP in color_modes:
-            self._attr_supported_color_modes = {ColorMode.COLOR_TEMP}
-        if ColorMode.RGB in color_modes:
-            self._attr_supported_color_modes = {ColorMode.RGB}
-
-        self._state = None
-        self._brightness = None
-        self._rgb_color = None
-        self.update_scenes()
-
-    async def async_update(self):
-        """Retrieve latest state."""
-        _LOGGER.info("Updating device: %s", self.device_data)
-
-        state = await self.hub.api.get_device_state(self.sku, self.device)
-        for cap in state["capabilities"]:
-            if cap['instance'] == 'powerSwitch':
-                self._state = cap['state']['value'] == 1
-            if cap['instance'] == 'brightness':
-                self._brightness = cap['state']['value']
-            if cap['instance'] == 'colorTemperatureK':
-                value = cap['state']['value']
-                if value != 0:
-                    self._attr_color_temp_kelvin = value
-                    self._attr_color_temp = color_util.color_temperature_kelvin_to_mired(value)
-            if cap['instance'] == 'colorRgb':
-                num = cap['state']['value']
-                self._attr_rgb_color = ((num >> 16) & 0xFF, (num >> 8) & 0xFF, num & 0xFF)
-
-    async def update_scenes(self):
-        if LightEntityFeature.EFFECT in self.supported_features:
-            if self._attr_effect_list is None or len(self._attr_effect_list) == 0:
-                _LOGGER.info("Updating device effects: %s", self.device_data)
-
-                store = Store(self.hass, 1, f"{DOMAIN}/effect_list_{self.sku}.json")
-                scenes = await self.hub.api.list_scenes(self.sku, self.device)
-
-                await store.async_save(scenes)
-
-                self._attr_effect_list = [scene['name'] for scene in scenes]
+    def __init__(
+        self,
+        coordinator: GoveeBLECoordinator,
+        config_entry: ConfigEntry,
+    ) -> None:
+        """Initialize the light."""
+        super().__init__(coordinator)
+        self._address = coordinator.address
+        self._model = coordinator.model
+        self._attr_unique_id = coordinator.address.replace(":", "").lower()
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.address)},
+            name=f"Govee {self._model}",
+            manufacturer="Govee",
+            model=self._model,
+        )
+        self._attr_color_mode = ColorMode.RGB
 
     @property
-    def name(self) -> str:
-        return self._attr_name
+    def is_on(self) -> bool:
+        """Return true if light is on."""
+        return self.coordinator.is_on
 
     @property
-    def unique_id(self) -> str:
-        return self.device
-
-    @property
-    def brightness(self):
-        return self._brightness
+    def brightness(self) -> int | None:
+        """Return the brightness (0-255)."""
+        return int(self.coordinator.brightness_pct * 255 / 100)
 
     @property
     def rgb_color(self) -> tuple[int, int, int] | None:
-        return self._rgb_color
+        """Return the RGB color."""
+        if self._attr_color_mode == ColorMode.RGB:
+            return self.coordinator.rgb_color
+        return None
 
     @property
-    def is_on(self) -> bool | None:
-        return self._state
+    def color_temp_kelvin(self) -> int | None:
+        """Return the color temperature in Kelvin."""
+        if self._attr_color_mode == ColorMode.COLOR_TEMP:
+            return self.coordinator.color_temp_kelvin
+        return None
 
-    async def async_turn_on(self, **kwargs) -> None:
-        self._state = True
+    @property
+    def effect(self) -> str | None:
+        """Return the current effect."""
+        return self.coordinator.effect
+
+    @property
+    def effect_list(self) -> list[str]:
+        """Return the list of supported effects."""
+        return list(SCENE_IDS.keys())
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the light on."""
+        await self.coordinator.send_command(build_power(True))
+        self.coordinator.is_on = True
+        self.coordinator.effect = None
 
         if ATTR_BRIGHTNESS in kwargs:
-            brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
-            await self.hub.api.set_brightness(self.sku, self.device, (brightness / 255) * 100)
-            self._brightness = brightness
+            brightness_255 = kwargs[ATTR_BRIGHTNESS]
+            brightness_pct = max(1, min(100, int(brightness_255 * 100 / 255)))
+            await self.coordinator.send_command(build_brightness(brightness_pct))
+            self.coordinator.brightness_pct = brightness_pct
 
         if ATTR_RGB_COLOR in kwargs:
-            red, green, blue = kwargs.get(ATTR_RGB_COLOR)
-            await self.hub.api.set_color_rgb(self.sku, self.device, red, green, blue)
+            r, g, b = kwargs[ATTR_RGB_COLOR]
+            await self.coordinator.send_command(build_color_rgb(r, g, b))
+            self.coordinator.rgb_color = (r, g, b)
+            self._attr_color_mode = ColorMode.RGB
+            self.coordinator.color_temp_kelvin = None
+            self.coordinator.effect = None
 
         if ATTR_COLOR_TEMP_KELVIN in kwargs:
-            kelvin = kwargs.get(ATTR_COLOR_TEMP_KELVIN)
-            await self.hub.api.set_color_temp(self.sku, self.device, kelvin)
+            kelvin = kwargs[ATTR_COLOR_TEMP_KELVIN]
+            await self.coordinator.send_command(build_color_temp(kelvin))
+            self.coordinator.color_temp_kelvin = kelvin
+            self._attr_color_mode = ColorMode.COLOR_TEMP
+            self.coordinator.effect = None
 
         if ATTR_EFFECT in kwargs:
-            effect_name = kwargs.get(ATTR_EFFECT)
-            store = Store(self.hass, 1, f"{DOMAIN}/effect_list_{self.sku}.json")
-            scenes = (
-                scene for scene in await store.async_load()
-                if scene['name'] == effect_name
-            )
-            scene = next(scenes)
-            _LOGGER.info("Set scene: %s", scene)
-            await self.hub.api.set_scene(self.sku, self.device, scene['value'])
+            effect_name = kwargs[ATTR_EFFECT]
+            if effect_name in SCENE_IDS:
+                await self.coordinator.send_command(build_scene(SCENE_IDS[effect_name]))
+                self.coordinator.effect = effect_name
 
-        await self.hub.api.toggle_power(self.sku, self.device, 1)
+        self.async_write_ha_state()
 
-    async def async_turn_off(self, **kwargs) -> None:
-        await self.hub.api.toggle_power(self.sku, self.device, 0)
-        self._state = False
-
-
-class GoveeBluetoothLight(LightEntity):
-    _attr_color_mode = ColorMode.RGB
-    _attr_supported_color_modes = {ColorMode.RGB}
-    _attr_supported_features = LightEntityFeature(
-        LightEntityFeature.EFFECT | LightEntityFeature.FLASH | LightEntityFeature.TRANSITION)
-
-    def __init__(self, hub: Hub, ble_device, config_entry: ConfigEntry) -> None:
-        """Initialize an bluetooth light."""
-        self._mac = hub.address
-        self._model = config_entry.data["model"]
-        self._is_segmented = self._model in SEGMENTED_MODELS
-        self._use_percent = self._model in PERCENT_MODELS
-        self._ble_device = ble_device
-        self._state = None
-        self._brightness = None
-
-    @property
-    def effect_list(self) -> list[str] | None:
-        effect_list = []
-        json_data = json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())
-        for categoryIdx, category in enumerate(json_data['data']['categories']):
-            for sceneIdx, scene in enumerate(category['scenes']):
-                for leffectIdx, lightEffect in enumerate(scene['lightEffects']):
-                    for seffectIxd, specialEffect in enumerate(lightEffect['specialEffect']):
-                        # if 'supportSku' not in specialEffect or self._model in specialEffect['supportSku']:
-                        # Workaround cause we need to store some metadata in effect (effect names not unique)
-                        indexes = str(categoryIdx) + "/" + str(sceneIdx) + "/" + str(leffectIdx) + "/" + str(
-                            seffectIxd)
-                        effect_list.append(
-                            category['categoryName'] + " - " + scene['sceneName'] + ' - ' + lightEffect[
-                                'scenceName'] + " [" + indexes + "]")
-
-        return effect_list
-
-    @property
-    def name(self) -> str:
-        """Return the name of the switch."""
-        return "GOVEE Light"
-
-    @property
-    def unique_id(self) -> str:
-        """Return a unique, Home Assistant friendly identifier for this entity."""
-        return self._mac.replace(":", "")
-
-    @property
-    def brightness(self):
-        return self._brightness
-
-    @property
-    def is_on(self) -> bool | None:
-        """Return true if light is on."""
-        return self._state
-
-    async def async_turn_on(self, **kwargs) -> None:
-        commands = [self._prepareSinglePacketData(LedCommand.POWER, [0x1])]
-
-        self._state = True
-
-        if ATTR_BRIGHTNESS in kwargs:
-            brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
-            # Some models require a percentage instead of the raw value of a byte.
-            if self._use_percent:
-                brightnessPercent = int(brightness * 100 / 255)
-                commands.append(self._prepareSinglePacketData(LedCommand.BRIGHTNESS, [brightnessPercent]))
-            else:
-                commands.append(self._prepareSinglePacketData(LedCommand.BRIGHTNESS, [brightness]))
-            self._brightness = brightness
-
-        if ATTR_RGB_COLOR in kwargs:
-            red, green, blue = kwargs.get(ATTR_RGB_COLOR)
-
-            if self._is_segmented:
-                commands.append(self._prepareSinglePacketData(LedCommand.COLOR,
-                                                              [LedMode.SEGMENTS, 0x01, red, green, blue, 0x00, 0x00, 0x00,
-                                                               0x00, 0x00, 0xFF, 0x7F]))
-            else:
-                commands.append(self._prepareSinglePacketData(LedCommand.COLOR, [LedMode.MANUAL, red, green, blue]))
-
-            self._rgb_color = (red, green, blue)
-        if ATTR_EFFECT in kwargs:
-            effect = kwargs.get(ATTR_EFFECT)
-            if len(effect) > 0:
-                search = EFFECT_PARSE.search(effect)
-
-                # Parse effect indexes
-                categoryIndex = int(search.group(1))
-                sceneIndex = int(search.group(2))
-                lightEffectIndex = int(search.group(3))
-                specialEffectIndex = int(search.group(4))
-
-                json_data = json.loads(Path(Path(__file__).parent, "jsons", (self._model + ".json")).read_text())
-                category = json_data['data']['categories'][categoryIndex]
-                scene = category['scenes'][sceneIndex]
-                lightEffect = scene['lightEffects'][lightEffectIndex]
-                specialEffect = lightEffect['specialEffect'][specialEffectIndex]
-
-                # Prepare packets to send big payload in separated chunks
-                for command in prepareMultiplePacketsData(0xa3,
-                                                          array.array('B', [0x02]),
-                                                          array.array('B',
-                                                                      base64.b64decode(specialEffect['scenceParam'])
-                                                                      )):
-                    commands.append(command)
-
-        for command in commands:
-            client = await self._connectBluetooth()
-            await client.write_gatt_char(UUID_CONTROL_CHARACTERISTIC, command, False)
-
-    async def async_turn_off(self, **kwargs) -> None:
-        client = await self._connectBluetooth()
-        await client.write_gatt_char(UUID_CONTROL_CHARACTERISTIC,
-                                     self._prepareSinglePacketData(LedCommand.POWER, [0x0]), False)
-        self._state = False
-
-    async def _connectBluetooth(self) -> BleakClient:
-        for i in range(3):
-            try:
-                client = await bleak_retry_connector.establish_connection(BleakClient, self._ble_device, self.unique_id)
-                return client
-            except:
-                continue
-
-    def _prepareSinglePacketData(self, cmd, payload):
-        if not isinstance(cmd, int):
-            raise ValueError('Invalid command')
-        if not isinstance(payload, bytes) and not (
-                isinstance(payload, list) and all(isinstance(x, int) for x in payload)):
-            raise ValueError('Invalid payload')
-        if len(payload) > 17:
-            raise ValueError('Payload too long')
-
-        cmd = cmd & 0xFF
-        payload = bytes(payload)
-
-        frame = bytes([0x33, cmd]) + bytes(payload)
-        # pad frame data to 19 bytes (plus checksum)
-        frame += bytes([0] * (19 - len(frame)))
-
-        # The checksum is calculated by XORing all data bytes
-        checksum = 0
-        for b in frame:
-            checksum ^= b
-
-        frame += bytes([checksum & 0xFF])
-        return frame
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the light off."""
+        await self.coordinator.send_command(build_power(False))
+        self.coordinator.is_on = False
+        self.async_write_ha_state()

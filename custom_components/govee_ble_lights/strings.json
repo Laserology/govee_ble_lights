@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "bluetooth": {
+        "description": "Govee {name} found via Bluetooth"
+      },
+      "user": {
+        "data": {
+          "address": "BLE Address",
+          "model": "Device Model"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  }
+}

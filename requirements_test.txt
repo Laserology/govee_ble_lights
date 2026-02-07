@@ -1,0 +1,5 @@
+pytest>=7.0
+pytest-asyncio>=0.21.0
+pytest-homeassistant-custom-component>=0.13.0
+bleak>=0.21.0
+bleak-retry-connector>=3.0.0

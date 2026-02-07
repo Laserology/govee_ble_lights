@@ -1,21 +1,18 @@
 {
     "domain": "govee_ble_lights",
-    "name": "Ultimate Govee BLE Lights",
-    "integration_type": "hub",
-    "bluetooth": [
-        { "local_name": "Govee_*", "connectable": false },
-        { "local_name": "GBK_*", "connectable": false },
-        { "local_name": "ihoment_*", "connectable": false },
-        {
-            "service_uuid": "00010203-0405-0607-0809-0a0b0c0d2b11", "connectable": false
-        }
-    ],
-    "codeowners": ["@Laserology"],
-    "requirements": ["bleak-retry-connector"],
-    "dependencies": ["network"],
-    "issue_tracker": "https://github.com/Laserology/govee_ble_lights/issues",
-    "documentation": "https://github.com/Laserology/govee_ble_lights",
+    "name": "Govee BLE Lights",
+    "codeowners": ["@teh-hippo"],
     "config_flow": true,
-    "iot_class": "local_polling",
-    "version": "0.1.1"
+    "dependencies": ["bluetooth_adapters"],
+    "documentation": "https://github.com/teh-hippo/govee_ble_lights",
+    "integration_type": "device",
+    "iot_class": "local_push",
+    "requirements": ["bleak>=0.21.0", "bleak-retry-connector>=3.0.0"],
+    "version": "1.0.0",
+    "bluetooth": [
+        {"local_name": "ihoment_H617A*"},
+        {"local_name": "Govee_H617A*"},
+        {"local_name": "GBK_H617A*"},
+        {"local_name": "GVH_H617A*"}
+    ]
 }
