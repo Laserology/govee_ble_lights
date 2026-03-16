@@ -26,7 +26,7 @@ class Hub:
 async def async_setup_api(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up Govee API"""
     assert config_entry.data.get(CONF_API_KEY) is not None
-    hass.async_create_task(internal_api_setup(hass, config_entry))
+    await internal_api_setup(hass, config_entry)
 
 async def internal_api_setup(hass: HomeAssistant, entry: ConfigEntry):
     api_key = entry.data.get(CONF_API_KEY)
