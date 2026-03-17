@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -10,7 +12,6 @@ from homeassistant.helpers.storage import Store
 from .govee_api import GoveeAPI
 
 from .const import DOMAIN
-import logging
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ async def internal_api_setup(hass: HomeAssistant, entry: ConfigEntry):
     api = GoveeAPI(api_key)
 
     devices = await api.list_devices()
-    _LOGGER.debug(f"Govee devices: {devices}")
+    _LOGGER.debug("Govee devices: %s", devices)
 
     store = Store(hass, 1, f"{DOMAIN}/{api_key}.json")
     await store.async_save(devices)
@@ -48,7 +49,7 @@ async def internal_cache_setup(
         store = Store(hass, 1, f"{DOMAIN}/{entry.data.get(CONF_API_KEY)}.json")
         devices = await store.async_load()
         if devices:
-            _LOGGER.debug(f"{len(devices)} devices loaded from cache!")
+            _LOGGER.debug("%s devices loaded from cache!", len(devices))
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = Hub(api, devices=devices)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -101,9 +102,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    if (MAJOR_VERSION, MINOR_VERSION) < (2025, 7):
-        raise Exception("unsupported hass version, need at least 2025.7")
+async def async_setup(hass: HomeAssistant, _: dict) -> bool:
+    if (MAJOR_VERSION, MINOR_VERSION) < (2026, 1):
+        raise Exception("unsupported hass version, need at least 2026.1")
 
     # init storage for registries
     hass.data[DOMAIN] = {}

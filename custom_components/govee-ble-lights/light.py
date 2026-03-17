@@ -200,8 +200,8 @@ class GoveeBluetoothLight(LightEntity):
         # Initialize variables.
         self._mac = hub.address
         self._model = config_entry.data["model"]
-        self._is_segmented = self._model in GoveeBLE.SEGMENTED_MODELS
-        self._use_percent = self._model in GoveeBLE.PERCENT_MODELS
+        self._is_segmented = self._model in GoveeBLE.BLE_SEGMENTED_MODELS
+        self._use_percent = self._model in GoveeBLE.BLE_PERCENT_MODELS
         self._ble_device = ble_device
         self._brightness = 255
         self._state = True
@@ -388,4 +388,4 @@ class GoveeBluetoothLight(LightEntity):
             else:
                 await self.async_turn_off()
 
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(GoveeBLE.BLE_KEEPALIVE_INTERVAL)

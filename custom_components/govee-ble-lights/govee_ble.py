@@ -30,9 +30,15 @@ class GoveeBLE:
         SCENES = 0x05
         SEGMENTS = 0x15
 
-    UUID_CONTROL_CHARACTERISTIC = '00010203-0405-0607-0809-0a0b0c0d2b11'
-    SEGMENTED_MODELS = ['H6053', 'H6072', 'H6102', 'H6199', 'H617A', 'H617C']
-    PERCENT_MODELS = ['H617A', 'H617C']
+    BLE_UUID_CONTROL_CHARACTERISTIC = '00010203-0405-0607-0809-0a0b0c0d2b11'
+
+    BLE_SEGMENTED_MODELS = ['H6053', 'H6072', 'H6102', 'H6199', 'H617A', 'H617C']
+    BLE_PERCENT_MODELS = ['H617A', 'H617C']
+
+    BLE_KEEPALIVE_INTERVAL = 1.0
+    BLE_INTERFRAME_DELAY = 0.05
+    BLE_HANDLE_RETRY = 3
+    BLE_TIMEOUT = 7
 
     @staticmethod
     async def send_multi_packet(client: BleakClient, protocol_type, header_array, data):
@@ -145,7 +151,7 @@ class GoveeBLE:
             retry += 1
 
         _LOGGER.debug("Writing frame: %s", bytes(frame).hex())
-        await client.write_gatt_char(GoveeBLE.UUID_CONTROL_CHARACTERISTIC, frame, False)
+        await client.write_gatt_char(GoveeBLE.BLE_UUID_CONTROL_CHARACTERISTIC, frame, False)
 
     @staticmethod
     async def read_attribute(client: BleakClient, attribute: LEDCommand):
@@ -158,7 +164,7 @@ class GoveeBLE:
         for _ in range(3):
             try:
                 return await brc.establish_connection(BleakClient, device, identifier)
-            except:
+            except Exception:
                 continue
 
     @staticmethod
