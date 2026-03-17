@@ -13,7 +13,10 @@ from bleak import BleakClient
 _LOGGER = logging.getLogger(__name__)
 
 class GoveeBLE:
-    """ This class is used to connect to and control Govee branded BLE LED lights. """
+    """
+    This class is used to connect to and control Govee branded BLE LED lights.
+    Good reference: https://github.com/egold555/Govee-Reverse-Engineering/blob/master/Products/H6127.md
+    """
 
     class LEDCommand(IntEnum):
         """ A control command packet's type. """
@@ -110,6 +113,25 @@ class GoveeBLE:
             await asyncio.sleep(0.05)
 
     @staticmethod
+    async def send_keepalive_packet(client: BleakClient):
+        """
+        Creates, signs, and sends a complete BLE keepalive packet to the device.
+        """
+
+        frame = bytes([0xaa])
+        # pad frame data to 19 bytes (plus checksum)
+        frame += bytes([0] * (19 - len(frame)))
+
+        # The checksum is calculated by XORing all data bytes
+        checksum = 0
+        for b in frame:
+            checksum ^= b
+
+        frame += bytes([GoveeBLE.sign_payload(frame)])
+
+        await GoveeBLE.send_single_frame(client, frame)
+
+    @staticmethod
     async def send_single_packet(client: BleakClient, cmd, payload):
         """
         Creates, signs, and sends a complete BLE packet to the device.
@@ -159,11 +181,41 @@ class GoveeBLE:
         return await client.read_gatt_char(attribute)
 
     @staticmethod
-    async def connect_to(device, identifier) -> BleakClient:
-        """" This method connects to and returns a handle for the target BLE device. """
-        for _ in range(3):
+    async def establish_connection(ble_device, identifier, hass) -> BleakClient:
+        """ Attempts to establish a connection handle for the device. """
+
+        client = await brc.establish_connection(BleakClient, ble_device, identifier, max_attempts=3)
+
+        # Create a background task to keep the BLE conenction active
+        # This helps remove the delay when turning on/off lights
+        hass.async_create_background_task(
+            # We pass client here sperately because it would be bad
+            # to encourage accessing it directly. Thus we pass it explicitly.
+            GoveeBLE.ensure_connection(client), "govee_ble_keepalive"
+        )
+
+        return client
+
+    @staticmethod
+    async def ensure_connection(client: BleakClient) -> None:
+        """
+        Method that ensures a light is always connected.
+        0xaa is a known documented header type to describe a keepalive packet.
+        """
+
+        # Loop forever as a background task.
+        while True:
+            # Delay to avoid the loop spamming BLE packets.
+            await asyncio.sleep(1)
+
+            # Keep inside of try block to avoid the loop dying.
             try:
-                return await brc.establish_connection(BleakClient, device, identifier)
+                # Ensure client is connected.
+                if not client.is_connected:
+                    await client.connect()
+
+                # Send data packet to keep the connection alive.
+                await GoveeBLE.send_keepalive_packet(client)
             except Exception:
                 continue
 

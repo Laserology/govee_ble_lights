@@ -6,8 +6,8 @@ It only contains the basic methods, and uses govee_ble to talk to govee devices.
 from __future__ import annotations
 
 from pathlib import Path
-import logging
 import asyncio
+import logging
 import base64
 import array
 import json
@@ -252,8 +252,9 @@ class GoveeBluetoothLight(LightEntity):
         except Exception as err:
             _LOGGER.error("Failed to load effect list for model %s: %s", self._model, err)
 
+        # Create a background task to connect to the device.
         self.hass.async_create_background_task(
-            self.ensure_connection(), "govee_ble_keepalive"
+            self.try_connect(), "govee_ble_initialize"
         )
 
     @property
@@ -293,7 +294,7 @@ class GoveeBluetoothLight(LightEntity):
 
     async def async_turn_on(self, **kwargs) -> None:
         if self._client is None:
-            self._client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
+            raise ConnectionError("This device has not been connected yet. Is it in range?")
 
         # Send power-on first, unless we're setting an effect (effect data should be loaded before activation)
         if ATTR_EFFECT not in kwargs:
@@ -360,32 +361,32 @@ class GoveeBluetoothLight(LightEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         if self._client is None:
-            self._client = await GoveeBLE.connect_to(self._ble_device, self.unique_id)
+            raise ConnectionError("This device has not been connected yet. Is it in range?")
 
         await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.POWER, [0x0])
 
         self._current_effect = EFFECT_OFF
         self._state = False
 
-    async def ensure_connection(self) -> None:
-        """
-        Background task to ensure the BLE device maintains connection.
-        Without it, the device may lose connection and cause errors when a state change is requested.
-        """
-        while True:
-            if self._client is not None and not self._client.is_connected:
-                try:
-                    await self._client.connect()
-                except Exception:
-                    pass
+    async def try_connect(self) -> None:
+        """ Tries to start a connection to the device. """
 
-            # Send single keep-alive packet by repeatedly setting the light's current state.
-            # Occurs once every second for each light.
-            if self._state is True:
-                # This also ensures that the lights do not deviate from what is set in home assistant.
-                # The plugin will need to be disabled/stopped for manual control.
-                await self.async_turn_on(ATTR_BRIGHTNESS=self._brightness)
-            else:
-                await self.async_turn_off()
+        # Try connection to the device.
+        while self._client is None:
+            try:
+                self._client = await GoveeBLE.establish_connection(
+                    self._ble_device,
+                    self.unique_id,
+                    self.hass)
 
-            await asyncio.sleep(GoveeBLE.BLE_KEEPALIVE_INTERVAL)
+            except Exception:
+                asyncio.sleep(1)
+                continue
+
+        # Create a background task to keep the BLE conenction active
+        # This helps remove the delay when turning on/off lights
+        self.hass.async_create_background_task(
+            # We pass client here sperately because it would be bad
+            # to encourage accessing it directly. Thus we pass it explicitly.
+            GoveeBLE.ensure_connection(self._client), "govee_ble_keepalive"
+        )
