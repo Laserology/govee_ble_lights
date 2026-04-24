@@ -129,7 +129,7 @@ class GoveeBLE:
 
         frame += bytes([GoveeBLE.sign_payload(frame)])
 
-        await GoveeBLE.send_single_frame(client, frame)
+        await GoveeBLE.send_single_frame(client, frame, False)
 
     @staticmethod
     async def send_single_packet(client: BleakClient, cmd, payload):
@@ -163,7 +163,9 @@ class GoveeBLE:
         await GoveeBLE.send_single_frame(client, frame)
 
     @staticmethod
-    async def send_single_frame(client: BleakClient, frame) -> None:
+    # Sends a single BLE data frame. log_frame indicates whether or not to log it.
+    # Turn log_frame off when sending keepalive packets to prevent log spam.
+    async def send_single_frame(client: BleakClient, frame, log_frame = True) -> None:
         """ Sends a pre-made BLE frame to the device. """
         retry = 0
         while not client.is_connected:
@@ -172,7 +174,9 @@ class GoveeBLE:
             await client.connect()
             retry += 1
 
-        _LOGGER.debug("Writing frame: %s", bytes(frame).hex())
+        if log_frame:
+            _LOGGER.debug("Writing frame: %s", bytes(frame).hex())
+
         await client.write_gatt_char(GoveeBLE.BLE_UUID_CONTROL_CHARACTERISTIC, frame, False)
 
     @staticmethod
