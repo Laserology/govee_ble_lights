@@ -155,7 +155,7 @@ class GoveeBLE:
         cmd = cmd & 0xFF
         payload = bytes(payload)
 
-        frame = bytes([frame_type.value, cmd]) + bytes(payload)
+        frame = bytes([frame_type, cmd]) + bytes(payload)
         # pad frame data to 19 bytes (plus checksum)
         frame += bytes([0] * (19 - len(frame)))
 
@@ -171,18 +171,12 @@ class GoveeBLE:
     @staticmethod
     def verify_frame(frame):
         """Verify the checksum on a received frame."""
-        if isinstance(frame, bytearray):
-            frame = bytes(frame)
-        if len(frame) < 3:
-            return False
-        return GoveeBLE.sign_payload(frame[:-1]) == frame[-1]
+        return GoveeBLE.sign_payload(frame[:-1]) == frame[-1] # Compare checksum of frame to calculated checksum
 
     @staticmethod
     def parse_frame(frame):
         """Parse a received BLE frame into header, command, and payload."""
-        if isinstance(frame, bytearray):
-            frame = bytes(frame)
-        if len(frame) < 3 or not GoveeBLE.verify_frame(frame):
+        if len(frame) < 3 or not GoveeBLE.verify_frame(frame): # Frames must be at least 3 bytes (header, command, checksum) and have a valid checksum
             raise ValueError('Invalid frame')
 
         head = frame[0]

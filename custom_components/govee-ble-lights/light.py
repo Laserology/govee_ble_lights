@@ -238,20 +238,20 @@ class GoveeBluetoothLight(LightEntity):
         except Exception:
             return
 
-        if head != GoveeBLE.LEDFrameType.REQUEST.value:
+        if head != GoveeBLE.LEDFrameType.REQUEST: # Only process responses to state requests
             return
 
-        if cmd == GoveeBLE.LEDCommand.POWER:
+        if cmd == GoveeBLE.LEDCommand.POWER: # Update power state of device
             self._state = payload[0] == 0x01
             if not self._state:
                 self._current_effect = EFFECT_OFF
-        elif cmd == GoveeBLE.LEDCommand.BRIGHTNESS:
+        elif cmd == GoveeBLE.LEDCommand.BRIGHTNESS: # Update brightness of device (depending on segmented/percent model)
             self._brightness = round(payload[0] * 255 / 100) if self._use_percent else int(payload[0])
-        elif cmd == GoveeBLE.LEDCommand.COLOR:
+        elif cmd == GoveeBLE.LEDCommand.COLOR: # Update color of non-segmented device
             if len(payload) >= 4:
                 self._rgb_color = (payload[1], payload[2], payload[3])
                 self._current_effect = EFFECT_OFF
-        elif cmd == GoveeBLE.LEDCommand.SEGMENT:
+        elif cmd == GoveeBLE.LEDCommand.SEGMENT: # Update color of segmented device (only first segment, which is the one we control)
             if len(payload) >= 5:
                 self._rgb_color = (payload[2], payload[3], payload[4])
                 self._current_effect = EFFECT_OFF
@@ -259,30 +259,20 @@ class GoveeBluetoothLight(LightEntity):
         self.async_write_ha_state()
 
     async def _register_notifications(self) -> None:
-        if self._client is None:
-            return
         try:
-            if not self._client.is_connected:
-                await self._client.connect()
-            await self._client.start_notify(
-                GoveeBLE.BLE_UUID_STATUS_CHARACTERISTIC,
-                self._handle_notification,
-            )
+            await self._client.start_notify(GoveeBLE.BLE_UUID_STATUS_CHARACTERISTIC, self._handle_notification) # Register response handler for when device responds to state requests or sends updates
         except Exception as err:
             _LOGGER.warning("Could not enable notifications for %s: %s", self.unique_id, err)
 
-    async def _request_device_state(self) -> None:
-        if self._client is None:
-            return
-        if not self._client.is_connected:
-            await self._client.connect()
-
+    async def _request_device_state(self) -> None:        
         try:
-            await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.POWER, [], GoveeBLE.LEDFrameType.REQUEST)
+            await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.POWER, [], GoveeBLE.LEDFrameType.REQUEST) # Request power state of device
             await asyncio.sleep(0.05)
-            await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.BRIGHTNESS, [], GoveeBLE.LEDFrameType.REQUEST)
+
+            await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.BRIGHTNESS, [], GoveeBLE.LEDFrameType.REQUEST) # Request brightness of device
             await asyncio.sleep(0.05)
-            if self._is_segmented:
+
+            if self._is_segmented: # Request color of device
                 await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.SEGMENT, [0x01], GoveeBLE.LEDFrameType.REQUEST)
             else:
                 await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.COLOR, [], GoveeBLE.LEDFrameType.REQUEST)
@@ -299,13 +289,11 @@ class GoveeBluetoothLight(LightEntity):
                     self._ble_device,
                     self.unique_id,
                     self.hass)
-
             except Exception:
                 await asyncio.sleep(1)
-                continue
 
-        await self._register_notifications()
-        await self._request_device_state()
+        await self._register_notifications() # Register notifications which handles response of request device state
+        await self._request_device_state() # Request the current device state
 
         # Create a background task to keep the BLE conennection active
         # This helps remove the delay when turning on/off lights
