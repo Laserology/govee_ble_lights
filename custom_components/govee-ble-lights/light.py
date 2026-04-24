@@ -295,7 +295,7 @@ class GoveeBluetoothLight(LightEntity):
         await self._register_notifications() # Register notifications which handles response of request device state
         await self._request_device_state() # Request the current device state
 
-        # Create a background task to keep the BLE conennection active
+        # Create a background task to keep the BLE connection active
         # This helps remove the delay when turning on/off lights
         self.hass.async_create_background_task(
             # We pass client here sperately because it would be bad
