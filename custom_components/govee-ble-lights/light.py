@@ -210,12 +210,22 @@ class GoveeBluetoothLight(LightEntity):
                 _LOGGER.debug("Sending effect scenceParam length: %d", len(specialEffect.get('scenceParam', '')))
 
                 try:
+                    # Step 1: Send effect data packets
                     await GoveeBLE.send_multi_packet(self._client, 0xa3,
                         array.array('B', [0x02]),
                         array.array('B', base64.b64decode(specialEffect['scenceParam'])))
-                    _LOGGER.debug("Effect %r sent successfully, sending power-on", effect)
+
+                    # Step 2: Send scene activation command
+                    # The Govee app sends both the 0xa3 effect data AND a
+                    # 0x33 0x05 [mode] [scene_code] activation command.
+                    # Without this, devices like the H617C load the data
+                    # but never activate the effect.
+                    scene_code = scene.get('sceneCode', sceneIndex)
+                    await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.COLOR,
+                        [GoveeBLE.LEDMode.SCENES, scene_code & 0xFF, (scene_code >> 8) & 0xFF])
+                    _LOGGER.debug("Effect %r sent with scene activation (code=%d)", effect, scene_code)
+
                     self._current_effect = effect
-                    # Power-on after effect data so the device activates with the effect already loaded
                     await GoveeBLE.send_single_packet(self._client, GoveeBLE.LEDCommand.POWER, [0x1])
                 except Exception as err:
                     _LOGGER.error("Failed to send effect %r: %s", effect, err)
