@@ -423,7 +423,6 @@ class GoveeBluetoothLight(LightEntity):
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
 
-            # Ignore for now.
             if self._is_segmented:
                 # Send segment-specific color command
                 await GoveeBLE.send_single_packet(
