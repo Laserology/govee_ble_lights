@@ -605,9 +605,6 @@ class GoveeBluetoothLight(LightEntity):
         3. Parses the command and payload
         4. Updates the appropriate state variable
         5. Calls async_write_ha_state() to update Home Assistant
-
-        Note: Only frames with head == 0xAA (REQUEST) are processed.
-        Frames with 0x33 (COMMAND) are ignored.
         """
         try:
             # Parse the frame and extract header, command, payload
@@ -618,9 +615,7 @@ class GoveeBluetoothLight(LightEntity):
             return
 
         # Only process responses to state requests (not commands we sent)
-        if (
-            head != GoveeBLE.LEDFrameType.REQUEST
-        ):  # Only process responses to state requests
+        if (head != GoveeBLE.LEDFrameType.REQUEST):
             return
 
         # Handle power state change
@@ -761,8 +756,8 @@ class GoveeBluetoothLight(LightEntity):
         # Keep trying to connect until successful
         while self._client is None:
             try:
-                # Establish connection to the device
-                self._client = await GoveeBLE.establish_connection(
+                # Create connection with the device
+                self._client = await GoveeBLE.create_connection(
                     self._ble_device, self.unique_id, self.hass
                 )
             except Exception:

@@ -512,9 +512,9 @@ class GoveeBLE:
         return await client.read_gatt_char(attribute)
 
     @staticmethod
-    async def establish_connection(ble_device, identifier, hass) -> BleakClient:
+    async def create_connection(ble_device, identifier, hass) -> BleakClient:
         """
-        Attempts to establish a connection handle for the BLE device.
+        Attempts to create a connection handle for the BLE device.
 
         This method uses bleak_retry_connector to establish and maintain
         the BLE connection with automatic retry logic. It also creates a
@@ -546,13 +546,6 @@ class GoveeBLE:
 
         # Create a background task to keep the BLE connection active
         # This helps remove the delay when turning on/off lights
-        hass.async_create_background_task(
-            # We pass client here separately because it would be bad
-            # to encourage accessing it directly. Thus we pass it explicitly.
-            GoveeBLE.ensure_connection(client),
-            "govee_ble_keepalive",
-        )
-
         return client
 
     @staticmethod
