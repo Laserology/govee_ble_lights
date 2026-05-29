@@ -72,17 +72,24 @@ class GoveeBLE:
 
         Different modes tell the device how to interpret the color data:
 
-        MANUAL (0x02) - Direct RGB values for standard strips
-        MICROPHONE (0x06) - Microphone-controlled effects (not implemented)
-        SCENES (0x05) - Scene/effect playback
-        SEGMENTS (0x15) - Segment-specific color control
-
-        Note: Only MANUAL mode is fully supported for color changes.
+        MANUAL (0x02)       - Direct RGB values for standard strips (H6172/H6173).
+        SCENE_ACTIVATE (0x04) - Activate a previously streamed scene blob;
+                                payload is [scene_id]. Paired with the 0xA3
+                                multi-packet write that loaded the scene.
+        SCENES (0x05)       - Built-in scene/effect playback.
+        MICROPHONE (0x06)   - Microphone-controlled effects (not implemented).
+        MANUAL_RGBIC (0x0D) - Solid-color set for RGBIC strips like H6178.
+                              Same payload layout as MANUAL (R,G,B) but a
+                              different mode byte. H6178 firmware silently
+                              ignores writes that use MANUAL or SEGMENTS.
+        SEGMENTS (0x15)     - Segment-specific color control for H617A family.
         """
 
         MANUAL = 0x02
-        MICROPHONE = 0x06
+        SCENE_ACTIVATE = 0x04
         SCENES = 0x05
+        MICROPHONE = 0x06
+        MANUAL_RGBIC = 0x0D
         SEGMENTS = 0x15
 
     class LEDFrameType(IntEnum):
@@ -122,8 +129,24 @@ class GoveeBLE:
         "H618C",
     ]
 
-    # Models that expect brightness as percentage (0-100) instead of 0-255
-    BLE_PERCENT_MODELS = ["H6199", "H617A", "H617C", "H618C"]
+    # Models that expect brightness as percentage (0-100) instead of 0-255.
+    # H6178 confirmed by btsnoop capture: official app sends 0x19/0x32/0x4b/0x64
+    # for the 25/50/75/100 percent slider positions.
+    BLE_PERCENT_MODELS = ["H6199", "H617A", "H617C", "H618C", "H6178"]
+
+    # RGBIC families (each LED individually addressable) that use color mode
+    # 0x0D for solid-color writes instead of MANUAL (0x02) or SEGMENTS (0x15).
+    # These devices silently ACK frames in either of the other two modes but
+    # never apply them; only mode 0x0D actually drives the LEDs.
+    #
+    # Color query layout for this family is also distinct: the request must be
+    # 0xAA 0x05 [0x01] (i.e. ask for segment 1) and the reply is
+    # 0xAA 0x05 0x0D R G B ... -- the existing COLOR notification parser then
+    # reads payload[1..3] as RGB, no separate notification handling needed.
+    #
+    # Orthogonal to BLE_PERCENT_MODELS: a model can be RGBIC and percent
+    # (H6178), RGBIC and raw, segmented and percent, etc.
+    BLE_RGBIC_MODELS = ["H6178"]
 
     # BLE connection and packet timing parameters
     BLE_KEEPALIVE_INTERVAL = 1.0  # Seconds between keepalive packets
