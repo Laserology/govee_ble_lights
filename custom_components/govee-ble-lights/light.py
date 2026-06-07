@@ -156,6 +156,9 @@ class GoveeBluetoothLight(LightEntity):
         self._effect_list: list[str] | None = None
         self._effect_map: dict[str, tuple] | None = None
         self._model_data: dict | None = None
+        # Tracks whether we currently have an active notification subscription,
+        # so _register_notifications can stop the old one before re-subscribing.
+        self._notifications_active = False
 
         # Create device info for Home Assistant
         self._attr_device_info = DeviceInfo(
@@ -615,7 +618,7 @@ class GoveeBluetoothLight(LightEntity):
             return
 
         # Only process responses to state requests (not commands we sent)
-        if (head != GoveeBLE.LEDFrameType.REQUEST):
+        if head != GoveeBLE.LEDFrameType.REQUEST:
             return
 
         # Handle power state change
@@ -660,11 +663,20 @@ class GoveeBluetoothLight(LightEntity):
         Raises:
             Exception: If notifications cannot be enabled (logged as warning)
         """
+        # Stop any existing notification before starting a new one.
+        # This prevents duplicate handlers after reconnection.
+        if self._notifications_active:
+            try:
+                await self._client.stop_notify(GoveeBLE.BLE_UUID_STATUS_CHARACTERISTIC)
+            except Exception:
+                pass  # Ignore stop errors; we're about to re-subscribe anyway
+
         try:
             # Enable notifications on the status characteristic
             await self._client.start_notify(
                 GoveeBLE.BLE_UUID_STATUS_CHARACTERISTIC, self._handle_notification
             )
+            self._notifications_active = True
         except Exception as err:
             # Log warning but continue - notifications are optional
             _LOGGER.warning(
@@ -734,6 +746,20 @@ class GoveeBluetoothLight(LightEntity):
             # Log as debug - state initialization is not critical
             _LOGGER.debug("Failed to request initial device state: %s", err)
 
+    async def _reconnect_handler(self) -> None:
+        """
+        Re-register BLE notifications and re-request device state after a reconnect.
+
+        Called by ensure_connection() after it successfully reconnects the underlying
+        transport. GATT subscriptions are destroyed on disconnect so this restores
+        the notification channel that _process_notification depends on.
+        """
+        try:
+            await self._register_notifications()
+            await self._request_device_state()
+        except Exception as err:
+            _LOGGER.debug("Reconnect handler failed: %s", err)
+
     async def try_connect(self) -> None:
         """
         Attempt to connect to the device.
@@ -765,7 +791,7 @@ class GoveeBluetoothLight(LightEntity):
                 await asyncio.sleep(1)
 
         # Register for BLE notifications
-        await self._register_notifications()  # Register notifications which handles response of request device state
+        await self._register_notifications() # Register notifications which handles response of request device state
 
         # Request the current device state to initialize entity
         await self._request_device_state()
@@ -773,8 +799,6 @@ class GoveeBluetoothLight(LightEntity):
         # Create a background task to keep the BLE connection active
         # This helps remove the delay when turning on/off lights
         self.hass.async_create_background_task(
-            # We pass client here separately because it would be bad
-            # to encourage accessing it directly. Thus we pass it explicitly.
-            GoveeBLE.ensure_connection(self._client),
+            GoveeBLE.ensure_connection(self._client, self._reconnect_handler),
             "govee_ble_keepalive",
         )

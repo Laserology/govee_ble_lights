@@ -549,7 +549,7 @@ class GoveeBLE:
         return client
 
     @staticmethod
-    async def ensure_connection(client: BleakClient) -> None:
+    async def ensure_connection(client: BleakClient, reconnect_callback=None) -> None:
         """
         Background task that ensures a light's BLE connection stays active.
 
@@ -559,6 +559,11 @@ class GoveeBLE:
 
         Args:
             client: BleakClient instance to keep alive
+            reconnect_callback: Optional coroutine to run after each reconnection.
+                Re-registering BLE notifications here is critical because GATT
+                subscriptions are lost when the underlying transport disconnects,
+                causing the device to appear unresponsive even though the connection
+                loop itself recovers successfully.
 
         Returns:
             None
@@ -585,6 +590,15 @@ class GoveeBLE:
                 # Ensure client is connected
                 if not client.is_connected:
                     await client.connect()
+
+                    # Re-register BLE notifications after reconnection.
+                    # GATT subscriptions are lost when the underlying transport
+                    # disconnects, so this is critical for keeping state updates flowing.
+                    if reconnect_callback is not None:
+                        try:
+                            await reconnect_callback()
+                        except Exception as cb_err:
+                            _LOGGER.debug("Reconnect callback failed: %s", cb_err)
 
                 # Send data packet to keep the connection alive
                 await GoveeBLE.send_keepalive_packet(client)
