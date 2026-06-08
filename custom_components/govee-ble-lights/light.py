@@ -148,6 +148,11 @@ class GoveeBluetoothLight(LightEntity):
         self._model = config_entry.data["model"]
         self._is_segmented = self._model in GoveeBLE.BLE_SEGMENTED_MODELS
         self._use_percent = self._model in GoveeBLE.BLE_PERCENT_MODELS
+        # RGBIC families (H6178) use a dedicated color mode byte 0x0D and a
+        # different color-query payload from both the legacy MANUAL and
+        # SEGMENTS families. They take precedence over _is_segmented in the
+        # color write/query dispatch below.
+        self._is_rgbic = self._model in GoveeBLE.BLE_RGBIC_MODELS
         self._ble_device = ble_device
         self._brightness = 255
         self._state = False
@@ -431,7 +436,18 @@ class GoveeBluetoothLight(LightEntity):
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
 
-            if self._is_segmented:
+            if self._is_rgbic:
+                # H6178-style RGBIC: 33 05 0D R G B + zero pad + XOR.
+                # Reverse-engineered from an Android btsnoop_hci.log capture
+                # of the official Govee Home app; identical mode and payload
+                # for every solid-color selection. Neither MANUAL (0x02) nor
+                # SEGMENTS (0x15) drives the LEDs on this firmware.
+                await GoveeBLE.send_single_packet(
+                    self._client,
+                    GoveeBLE.LEDCommand.COLOR,
+                    [GoveeBLE.LEDMode.MANUAL_RGBIC, red, green, blue],
+                )
+            elif self._is_segmented:
                 # Send segment-specific color command
                 await GoveeBLE.send_single_packet(
                     self._client,
@@ -726,7 +742,19 @@ class GoveeBluetoothLight(LightEntity):
             await asyncio.sleep(0.05)
 
             # Request color based on device type
-            if self._is_segmented:  # Request color of device
+            if self._is_rgbic:
+                # H6178: AA 05 01 ... -> reply AA 05 0D R G B ...
+                # The 0x01 in the request body means "report segment 1's color";
+                # an empty payload returns only the overall mode byte (which is
+                # 0x15 for the current firmware regardless of the displayed
+                # color, so it isn't useful for syncing RGB).
+                await GoveeBLE.send_single_packet(
+                    self._client,
+                    GoveeBLE.LEDCommand.COLOR,
+                    [0x01],
+                    GoveeBLE.LEDFrameType.REQUEST,
+                )
+            elif self._is_segmented:  # Request color of device
                 # Segmented device uses SEGMENT command for color request
                 await GoveeBLE.send_single_packet(
                     self._client,
