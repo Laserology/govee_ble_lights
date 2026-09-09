@@ -115,6 +115,39 @@ Effects can be **animated** by adding a `step` value in seconds: every step the
 pattern shifts one segment along the strip, so the example above makes red and
 white bands move, updating once per second. Omit `step` for a static pattern.
 
+Fades are done in software (most Govee firmware has no native crossfade):
+colors are interpolated and re-sent ~30 times per second. Set `fade` on an
+effect (seconds) to crossfade between its frames instead of stepping —
+equal `step` and `fade` makes the pattern morph continuously. Top-level
+values control general transitions:
+
+```json
+{
+  "fade": 0.5,
+  "fade_on": 1.0,
+  "fade_off": 1.0
+}
+```
+
+- `fade` — default crossfade for plain color changes (0.5 s).
+- `fade_on` — ramp-up duration when the light turns on (fades in from black).
+- `fade_off` — fade-to-black before powering off.
+
+All three default to 0 (instant) when absent.
+
+**Automations:** the integration advertises the `transition` feature, so
+`light.turn_on` / `light.turn_off` accept a `transition` (seconds) and it
+overrides the configured fades for that call, e.g.:
+
+```yaml
+service: light.turn_on
+target:
+  entity_id: light.bedroom
+data:
+  rgb_color: [255, 0, 0]
+  transition: 3
+```
+
 > **Strip blend quirk:** on some models (e.g. H617C) each addressable segment
 > visually spans *two* bands, the second being a blend with the neighboring
 > segment — a red/white palette reads as red, pink, white, pink. Repeating each

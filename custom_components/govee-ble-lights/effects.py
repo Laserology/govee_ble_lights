@@ -7,6 +7,14 @@ segment in a two-byte mask. Effect definitions therefore only describe a
 pattern (see ``models.py``), and this module resolves that pattern against a
 concrete segment count into the minimal set of per-color writes needed.
 
+Because most Govee firmware has no native fade, fading is done in software:
+the light entity interpolates between per-segment color states and re-sends
+frames quickly. This module provides the pure helpers for both concerns:
+
+- ``segment_colors`` — resolve an effect definition to one color per segment.
+- ``segments_to_writes`` — group per-segment colors into minimal mask packets.
+- ``interpolate_segments`` — linear RGB interpolation between two states.
+
 Each returned "write" is::
 
     {"color": (r, g, b), "mask_lo": int, "mask_hi": int}
@@ -20,9 +28,11 @@ from __future__ import annotations
 from .models import MAX_SEGMENT_COUNT
 
 
-def render_pattern(effect: dict, segment_count: int, offset: int = 0) -> list[dict]:
+def segment_colors(
+    effect: dict, segment_count: int, offset: int = 0
+) -> list[list[int]]:
     """
-    Resolve a pattern effect into minimal per-color segment writes.
+    Resolve an effect definition into one color per segment.
 
     Args:
         effect: Effect definition dict. Currently supports:
@@ -32,8 +42,7 @@ def render_pattern(effect: dict, segment_count: int, offset: int = 0) -> list[di
             Animation advances this each step to make the pattern move.
 
     Returns:
-        list[dict]: One entry per distinct color, in order of first use,
-        each with the color and the segment mask it should be painted to.
+        list[list[int]]: A color per segment, in segment order.
 
     Raises:
         ValueError: If the effect definition is malformed.
@@ -42,24 +51,84 @@ def render_pattern(effect: dict, segment_count: int, offset: int = 0) -> list[di
     if not colors:
         raise ValueError("Effect has no 'colors' list")
 
-    writes_by_color: dict[tuple[int, int, int], list[int]] = {}
     count = min(segment_count, MAX_SEGMENT_COUNT)
-
-    for segment in range(1, count + 1):
-        raw_color = colors[(offset + segment - 1) % len(colors)]
+    result = []
+    for segment in range(count):
+        raw_color = colors[(offset + segment) % len(colors)]
         if len(raw_color) != 3 or not all(
             isinstance(channel, int) and 0 <= channel <= 255 for channel in raw_color
         ):
             raise ValueError(f"Invalid color in effect: {raw_color}")
+        result.append(list(raw_color))
+    return result
 
-        color = tuple(raw_color)
-        mask = writes_by_color.setdefault(color, [0, 0])
+
+def segments_to_writes(segment_colors: list[list[int]]) -> list[dict]:
+    """
+    Group per-segment colors into the minimal set of mask packets.
+
+    Segments painted in the same color share one write, so a pattern with few
+    distinct colors needs few packets.
+
+    Args:
+        segment_colors: One color per segment, in segment order.
+
+    Returns:
+        list[dict]: One entry per distinct color, in order of first use, each
+        with the color and the segment mask it should be painted to.
+    """
+    writes_by_color: dict[tuple[int, int, int], list[int]] = {}
+    for segment, color in enumerate(segment_colors, start=1):
+        key = tuple(color)
+        mask = writes_by_color.setdefault(key, [0, 0])
         if segment <= 8:
             mask[0] |= 1 << (segment - 1)
         else:
             mask[1] |= 1 << (segment - 9)
 
     return [
-        {"color": color, "mask_lo": mask[0], "mask_hi": mask[1]}
+        {"color": list(color), "mask_lo": mask[0], "mask_hi": mask[1]}
         for color, mask in writes_by_color.items()
+    ]
+
+
+def render_pattern(effect: dict, segment_count: int, offset: int = 0) -> list[dict]:
+    """
+    Resolve an effect definition into per-color segment writes.
+
+    Convenience wrapper equivalent to
+    ``segments_to_writes(segment_colors(effect, segment_count, offset))``.
+
+    Args:
+        effect: Effect definition dict (see :func:`segment_colors`).
+        segment_count: Number of segments on the target device (<= 15).
+        offset: Palette shift used by animations.
+
+    Returns:
+        list[dict]: Minimal per-color writes (see :func:`segments_to_writes`).
+
+    Raises:
+        ValueError: If the effect definition is malformed.
+    """
+    return segments_to_writes(segment_colors(effect, segment_count, offset))
+
+
+def interpolate_segments(
+    from_colors: list[list[int]], to_colors: list[list[int]], fraction: float
+) -> list[list[int]]:
+    """
+    Linearly interpolate two per-segment color states.
+
+    Args:
+        from_colors: Starting per-segment colors.
+        to_colors: Target per-segment colors (same length as from_colors).
+        fraction: Position between states, 0.0 (from) to 1.0 (to).
+
+    Returns:
+        list[list[int]]: Interpolated per-segment colors, channel-wise.
+    """
+    fraction = max(0.0, min(1.0, fraction))
+    return [
+        [round(source + (target - source) * fraction) for source, target in zip(f, t)]
+        for f, t in zip(from_colors, to_colors)
     ]

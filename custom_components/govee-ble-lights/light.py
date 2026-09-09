@@ -29,6 +29,7 @@ from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_RGB_COLOR,
     ATTR_EFFECT,
+    ATTR_TRANSITION,
     EFFECT_OFF,
     LightEntity,
     LightEntityFeature,
@@ -41,8 +42,11 @@ from homeassistant.core import HomeAssistant
 
 from .govee_ble import GoveeBLE
 from .const import DOMAIN
-from .effects import render_pattern
+from .effects import interpolate_segments, segment_colors, segments_to_writes
 from .models import (
+    get_default_fade,
+    get_fade_off,
+    get_fade_on,
     get_model_effects,
     get_segment_count,
     is_segmented_model,
@@ -51,6 +55,10 @@ from .models import (
 from . import Hub
 
 _LOGGER = logging.getLogger(__name__)
+
+# Seconds between software-fade frames. Firmware has no native fading, so
+# color changes are interpolated and re-sent at this rate (~30 fps).
+_FADE_INTERVAL = 1 / 30
 
 
 async def async_setup_entry(
@@ -160,9 +168,13 @@ class GoveeBluetoothLight(LightEntity):
         self._effects: dict[str, dict] = (
             get_model_effects(self._model) if self._is_segmented else {}
         )
-        self._attr_supported_features = (
-            LightEntityFeature.EFFECT if self._effects else LightEntityFeature(0)
-        )
+
+        # Transitions (fades) are always supported so automations can pass
+        # light.turn_on/turn_off transition.
+        features = LightEntityFeature.TRANSITION
+        if self._effects:
+            features |= LightEntityFeature.EFFECT
+        self._attr_supported_features = features
 
         # Tracks whether we currently have an active notification subscription,
         # so _register_notifications can stop the old one before re-subscribing.
@@ -170,6 +182,18 @@ class GoveeBluetoothLight(LightEntity):
 
         # Background task advancing an animated effect, if one is running.
         self._effect_task: asyncio.Task | None = None
+
+        # Monotonic counters so a newer fade (or turn request) invalidates
+        # older in-flight ones. Rapid color changes must never interleave
+        # frames from two fades at once (that causes flicker).
+        self._render_epoch = 0
+        self._op_serial = 0
+
+        # Current per-segment color state, used as the starting point when
+        # crossfading to a new target. None means the device state is unknown.
+        # Seeded from the device's reported color on connect, so fades work
+        # even before the user sets a color explicitly.
+        self._segment_state: list[list[int]] | None = None
 
         # Create device info for Home Assistant
         self._attr_device_info = DeviceInfo(
@@ -290,6 +314,18 @@ class GoveeBluetoothLight(LightEntity):
                 "This device has not been connected yet. Is it in range?"
             )
 
+        # Remember whether the light was off: power-on transitions fade in
+        # from black instead of crossfading from the previous color.
+        was_off = not self._state
+
+        # Bump the operation serial so any older turn request (in particular
+        # an in-flight fade-out) knows it has been superseded.
+        self._op_serial += 1
+
+        # Home Assistant automations can pass a transition (seconds); it
+        # overrides the configured fades for this call.
+        transition = kwargs.get(ATTR_TRANSITION)
+
         # Send power-on
         await GoveeBLE.send_single_packet(
             self._client, GoveeBLE.LEDCommand.POWER, [0x1]
@@ -312,7 +348,9 @@ class GoveeBluetoothLight(LightEntity):
                         "No previous color to restore for model %s", self._model
                     )
             elif effect in self._effects:
-                await self._async_apply_effect(effect)
+                await self._async_apply_effect(
+                    effect, start_from_black=was_off, fade_override=transition
+                )
                 self._current_effect = effect
             else:
                 _LOGGER.warning(
@@ -342,61 +380,178 @@ class GoveeBluetoothLight(LightEntity):
         # Handle RGB color setting
         if ATTR_RGB_COLOR in kwargs:
             red, green, blue = kwargs.get(ATTR_RGB_COLOR)
-            await self._async_set_solid_color(red, green, blue)
+            # Stop any running animation first so it cannot fight the fade.
+            await self._async_cancel_effect_task()
+            await self._async_set_solid_color(
+                red,
+                green,
+                blue,
+                fade=transition,
+                start_from_black=was_off,
+            )
 
             # Update entity state
             self._rgb_color = (red, green, blue)
-            await self._async_cancel_effect_task()
             self._current_effect = EFFECT_OFF
+
+        # Power-on with no explicit target: re-apply the tracked pattern with
+        # a fade-in from black, so toggling on fades in even before any color
+        # has been set explicitly (the state is seeded from the device's
+        # reported color on connect).
+        if (
+            ATTR_EFFECT not in kwargs
+            and ATTR_RGB_COLOR not in kwargs
+            and self._segment_state is not None
+        ):
+            await self._async_render_target(
+                self._segment_state,
+                transition if transition is not None else get_fade_on(),
+                start_from_black=True,
+            )
 
         self.async_write_ha_state()
 
-    async def _async_set_solid_color(self, red: int, green: int, blue: int) -> None:
+    async def _async_set_solid_color(
+        self,
+        red: int,
+        green: int,
+        blue: int,
+        fade: float | None = None,
+        start_from_black: bool = False,
+    ) -> None:
         """
         Set the whole light to a single solid color.
 
-        Segmented models get a segment command with every segment masked in;
-        non-segmented models get the standard manual color command.
+        Segmented models get one color per segment; non-segmented models get
+        the standard manual color command. The change crossfades instead of
+        jumping: from the previous color for normal changes, or from black
+        when the light is powering on.
 
         Args:
             red: Red channel (0-255)
             green: Green channel (0-255)
             blue: Blue channel (0-255)
+            fade: Override crossfade duration (seconds); defaults to the
+                top-level ``fade`` value (or ``fade_on`` when powering on).
+            start_from_black: Fade from off/black rather than the current
+                state (used when the light was powered off).
+        """
+        if start_from_black:
+            duration = fade if fade is not None else get_fade_on()
+        elif fade is not None:
+            duration = fade
+        else:
+            duration = get_default_fade()
+
+        if self._is_segmented:
+            target = [[red, green, blue]] * get_segment_count(self._model)
+        else:
+            target = [[red, green, blue]]
+        await self._async_render_target(
+            target, duration, start_from_black=start_from_black
+        )
+
+    def _writes_for_target(self, target: list[list[int]]) -> list[dict]:
+        """Convert a per-segment color state into BLE write dicts.
+
+        Segmented models use one mask packet per distinct color; non-segmented
+        models use a single manual color packet.
+
+        Args:
+            target: One color per segment.
+
+        Returns:
+            list[dict]: write dicts, see segments_to_writes. Non-segmented
+            writes carry only the color.
         """
         if self._is_segmented:
-            # Send segment-specific color command covering all segments
-            await GoveeBLE.send_single_packet(
-                self._client,
-                GoveeBLE.LEDCommand.COLOR,  # Command
-                [  # Data for segmented device
-                    GoveeBLE.LEDMode.SEGMENTS,
-                    0x01,  # Segment color mode
-                    red,
-                    green,
-                    blue,  # RGB values
-                    0x00,
-                    0x00,
-                    0x00,
-                    0x00,
-                    0x00,  # Reserved
-                    0xFF,  # Segment mask: segments 1-8
-                    0x7F,  # Segment mask: segments 9-15
-                ],
-            )  # Data
-        else:
-            # Send standard RGB color command
-            await GoveeBLE.send_single_packet(
-                self._client,
-                GoveeBLE.LEDCommand.COLOR,  # Command
-                [  # Data for non-segmented device
-                    GoveeBLE.LEDMode.MANUAL,  # Mode
-                    red,
-                    green,
-                    blue,  # RGB values
-                ],
-            )  # Data
+            return segments_to_writes(target)
+        return [{"color": target[0]}]
 
-    async def _async_apply_effect(self, name: str) -> None:
+    async def _async_send_writes(self, writes: list[dict]) -> None:
+        """Send a set of computed writes to the device.
+
+        Args:
+            writes: write dicts from _writes_for_target
+        """
+        for write in writes:
+            if self._is_segmented:
+                await GoveeBLE.set_segments_color(
+                    self._client, write["color"], write["mask_lo"], write["mask_hi"]
+                )
+            else:
+                red, green, blue = write["color"]
+                await GoveeBLE.send_single_packet(
+                    self._client,
+                    GoveeBLE.LEDCommand.COLOR,
+                    [GoveeBLE.LEDMode.MANUAL, red, green, blue],
+                )
+
+    async def _async_render_target(
+        self, target: list[list[int]], fade: float, start_from_black: bool = False
+    ) -> None:
+        """
+        Move the strip from its current state to *target*, optionally fading.
+
+        When the start state is known (or *start_from_black* is set) and
+        *fade* > 0, the colors are interpolated channel-wise and intermediate
+        frames are sent every ``_FADE_INTERVAL`` seconds. Otherwise the
+        target is applied instantly.
+
+        Only the most recent render survives: starting a new render (e.g. a
+        rapid color change) invalidates any fade still in progress, which
+        then aborts before its next write instead of interleaving frames.
+
+        Args:
+            target: One color per segment (see _writes_for_target).
+            fade: Crossfade duration in seconds (0 = instant).
+            start_from_black: Interpolate from black instead of the current
+                tracked state (used when powering on from off).
+        """
+        self._render_epoch += 1
+        my_epoch = self._render_epoch
+
+        start = None
+        if start_from_black:
+            start = [[0, 0, 0]] * len(target)
+        elif self._segment_state is not None and fade > 0:
+            start = self._segment_state
+
+        if start is None or fade <= 0:
+            if self._render_epoch != my_epoch:
+                return
+            await self._async_send_writes(self._writes_for_target(target))
+            if self._render_epoch == my_epoch:
+                self._segment_state = target
+            return
+
+        # Nothing to do when the target already matches the start state.
+        if start == target:
+            self._segment_state = target
+            return
+
+        frames = max(1, round(fade / _FADE_INTERVAL))
+        for frame_index in range(1, frames + 1):
+            if self._render_epoch != my_epoch:
+                # A newer render superseded this one; stop before writing so
+                # frames from two fades never interleave.
+                return
+            frame = interpolate_segments(start, target, frame_index / frames)
+            await self._async_send_writes(self._writes_for_target(frame))
+            # Track the frame actually sent so an interrupted fade (e.g. the
+            # effect task being cancelled) resumes from the real state.
+            self._segment_state = frame
+            await asyncio.sleep(_FADE_INTERVAL)
+
+        if self._render_epoch == my_epoch:
+            self._segment_state = target
+
+    async def _async_apply_effect(
+        self,
+        name: str,
+        start_from_black: bool = False,
+        fade_override: float | None = None,
+    ) -> None:
         """
         Paint the initial frame of an effect and start its animation, if any.
 
@@ -407,20 +562,31 @@ class GoveeBluetoothLight(LightEntity):
 
         Args:
             name: Name of the effect to apply (must exist in ``self._effects``)
+            start_from_black: Fade in from off/black (used on power-on).
+            fade_override: Explicit fade duration (seconds); overrides the
+                configured fades for the initial frame (used for HA
+                transition calls).
         """
         await self._async_cancel_effect_task()
 
         effect_def = self._effects[name]
+        if fade_override is not None:
+            fade = fade_override
+        else:
+            # Power-on ramps use fade_on; otherwise the effect's own fade (or
+            # the top-level default) applies.
+            fade = (
+                get_fade_on()
+                if start_from_black and get_fade_on() > 0
+                else float(effect_def.get("fade", get_default_fade()))
+            )
         try:
-            writes = render_pattern(effect_def, get_segment_count(self._model))
+            target = segment_colors(effect_def, get_segment_count(self._model))
         except ValueError as err:
             _LOGGER.error("Effect %r is invalid: %s", name, err)
             return
 
-        for write in writes:
-            await GoveeBLE.set_segments_color(
-                self._client, write["color"], write["mask_lo"], write["mask_hi"]
-            )
+        await self._async_render_target(target, fade, start_from_black=start_from_black)
 
         # Animated effects advance the pattern in a background task.
         if effect_def.get("step"):
@@ -451,13 +617,12 @@ class GoveeBluetoothLight(LightEntity):
 
             offset += 1
             try:
-                writes = render_pattern(
+                target = segment_colors(
                     effect_def, get_segment_count(self._model), offset=offset
                 )
-                for write in writes:
-                    await GoveeBLE.set_segments_color(
-                        self._client, write["color"], write["mask_lo"], write["mask_hi"]
-                    )
+                await self._async_render_target(
+                    target, float(effect_def.get("fade", get_default_fade()))
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as err:
@@ -499,14 +664,44 @@ class GoveeBluetoothLight(LightEntity):
                 "This device has not been connected yet. Is it in range?"
             )
 
+        # Bump the operation serial: a newer turn-on/off supersedes this one.
+        self._op_serial += 1
+        my_op_serial = self._op_serial
+
+        # Stop any running animation; the pattern is no longer guaranteed to
+        # match the device once it is powered down.
+        await self._async_cancel_effect_task()
+
+        # Home Assistant automations can pass a transition (seconds); it
+        # overrides the configured fade-off duration for this call.
+        transition = kwargs.get(ATTR_TRANSITION)
+        prev_state = self._segment_state
+        # Fall back to the reported solid color when the per-segment layout is
+        # unknown, so fade-off works before any explicit color has been set.
+        if prev_state is None and self._rgb_color is not None:
+            color = list(self._rgb_color)
+            if self._is_segmented:
+                prev_state = [color] * get_segment_count(self._model)
+            else:
+                prev_state = [color]
+
+        fade_off = transition if transition is not None else get_fade_off()
+        if prev_state is not None and fade_off > 0:
+            black = [[0, 0, 0]] * len(prev_state)
+            await self._async_render_target(black, fade_off)
+
+        # A newer turn request (e.g. a turn-on that raced the fade-out) took
+        # over; do not switch the power off now.
+        if self._op_serial != my_op_serial:
+            return
+        if prev_state is not None and fade_off > 0:
+            self._segment_state = prev_state
+
         # Send power-off command
         await GoveeBLE.send_single_packet(
             self._client, GoveeBLE.LEDCommand.POWER, [0x0]  # 0x00 = off
         )
 
-        # Stop any running animation; the pattern is no longer guaranteed to
-        # match the device once it is powered down.
-        await self._async_cancel_effect_task()
         self._current_effect = EFFECT_OFF
         self._state = False
         self.async_write_ha_state()
@@ -580,11 +775,20 @@ class GoveeBluetoothLight(LightEntity):
         elif cmd == GoveeBLE.LEDCommand.COLOR:  # Update color of non-segmented device
             if len(payload) >= 4:
                 self._rgb_color = (payload[1], payload[2], payload[3])
+                # Seed the fade state from the reported color so fades work
+                # before any explicit color has been set.
+                if self._segment_state is None:
+                    self._segment_state = [[payload[1], payload[2], payload[3]]]
 
         # Handle color change on segmented device
         elif cmd == GoveeBLE.LEDCommand.SEGMENT:  # Update color of segmented device
             if len(payload) >= 5:
                 self._rgb_color = (payload[2], payload[3], payload[4])
+                # Seed the fade state from the reported color (assume the
+                # strip is solid until proven otherwise).
+                if self._segment_state is None:
+                    color = [payload[2], payload[3], payload[4]]
+                    self._segment_state = [color] * get_segment_count(self._model)
 
         # Update Home Assistant state
         self.async_write_ha_state()

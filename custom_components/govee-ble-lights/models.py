@@ -18,6 +18,7 @@ Schema (config.json)
         "H613A": { "brightness_percent": true },
         "H6199": { "segmented": true, "brightness_percent": true }
       },
+      "fade": 1.0,
       "effects": {
         "Christmas": { "colors": [[255, 0, 0], [255, 255, 255]] }
       }
@@ -36,6 +37,17 @@ Per-model options:
 - ``effects_file``: path, relative to the component directory, of a file
   containing extra effect definitions for this model (for definitions large
   enough that they would bloat ``config.json``).
+
+Top-level options:
+
+- ``fade``: default crossfade duration in seconds for color changes (and
+  effect frame transitions, unless the effect overrides ``fade``). Device
+  firmware has no native fading, so colors are interpolated in software by
+  sending intermediate frames quickly. Defaults to 0 (instant).
+- ``fade_on``: crossfade duration in seconds when the light powers on
+  (ramps up from off/black to the requested color). Defaults to 0.
+- ``fade_off``: crossfade duration in seconds when the light powers off
+  (fades to black before switching off). Defaults to 0.
 
 Effect definitions
 ------------------
@@ -59,8 +71,11 @@ Segment ``n`` of the device is set to
 segments regardless of how many segments the model has. The optional ``step``
 (seconds) makes the effect animated: every ``step`` the pattern shifts by one
 segment, which looks like the colors moving along the strip. Without ``step``
-the effect is static. Animated/moving effects can be extended later with new
-keys on the same definition object.
+the effect is static. The optional ``fade`` (seconds) crossfades between
+consecutive frames in software instead of jumping; when it equals ``step``
+the pattern morphs continuously. Without ``fade``, the top-level ``fade``
+value is used. Animated/moving effects can be extended later with new keys on
+the same definition object.
 """
 
 from __future__ import annotations
@@ -122,6 +137,21 @@ def get_segment_count(model: str) -> int:
 def get_effects() -> dict[str, dict]:
     """Return the shared effect definitions (top-level ``effects`` key)."""
     return _load_config().get("effects", {})
+
+
+def get_default_fade() -> float:
+    """Return the default crossfade duration in seconds (top-level ``fade``)."""
+    return float(_load_config().get("fade", 0.0))
+
+
+def get_fade_on() -> float:
+    """Return the power-on crossfade duration in seconds (top-level ``fade_on``)."""
+    return float(_load_config().get("fade_on", 0.0))
+
+
+def get_fade_off() -> float:
+    """Return the power-off crossfade duration in seconds (top-level ``fade_off``)."""
+    return float(_load_config().get("fade_off", 0.0))
 
 
 def get_model_effects(model: str) -> dict[str, dict]:
