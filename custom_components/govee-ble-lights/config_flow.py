@@ -13,11 +13,8 @@ The config flow supports two main paths:
 
 """
 
-from pathlib import Path
 from typing import Any
-import json
 
-from homeassistant import config_entries
 import voluptuous as vol
 
 from homeassistant.components.bluetooth import (
@@ -29,6 +26,7 @@ from homeassistant.const import CONF_ADDRESS, CONF_MODEL, CONF_TYPE
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import DOMAIN, CONF_TYPE_BLE
+from .models import get_available_models
 
 
 class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -83,18 +81,11 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _async_load_models(self) -> None:
         """
-        Load available Govee light model names from bundled JSON files.
+        Load available Govee light model names from the bundled config file.
 
-        This method asynchronously loads model information from JSON files
-        stored in the 'jsons' directory. These files contain effect definitions
-        and other model-specific data for different Govee light products.
-
-        The loading is done using an executor to avoid blocking the Home
-        Assistant main thread. Models are loaded once and cached in
-        _available_models for subsequent use.
-
-        Args:
-            self: Configuration flow instance
+        The model list is read from the single bundled ``config.json`` (via
+        :func:`.models.get_available_models`) and cached in
+        ``_available_models`` after the first load.
 
         Returns:
             None - models are loaded into self._available_models
@@ -103,12 +94,7 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
         if self._available_models:
             return
 
-        # New: Use list of devices in new config file.
-        config_path = str(Path(__file__).parent) + "/config.json"
-
-        with open(config_path, 'r') as file:
-                config = json.load(file)
-                self._available_models = config["available_devices"]
+        self._available_models = get_available_models()
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak

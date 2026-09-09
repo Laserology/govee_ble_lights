@@ -10,10 +10,10 @@ The implementation handles:
 - Power control (on/off)
 - Brightness control (with percentage support for newer models)
 - Color control (RGB)
-- Scene/effect playback (not supported yet)
 - Multi-packet support for segmented light strips
 
-Good reference: https://github.com/egold555/Govee-Reverse-Engineering/blob/master/Products/H6127.md
+Device models (including segmented/percentage-capable ones) are described in
+config.json; see models.py. Good reference: https://github.com/egold555/Govee-Reverse-Engineering/blob/master/Products/H6127.md
 """
 
 from enum import IntEnum
@@ -108,23 +108,6 @@ class GoveeBLE:
     # These are custom UUIDs used by Govee devices, not standard GATT
     BLE_UUID_STATUS_CHARACTERISTIC = "00010203-0405-0607-0809-0a0b0c0d2b10"
     BLE_UUID_CONTROL_CHARACTERISTIC = "00010203-0405-0607-0809-0a0b0c0d2b11"
-
-    # Models that use segmented LED strips (multiple colors in one strip)
-    # These devices require special multi-packet commands when controlling specific segments.
-    # Ignore for now.
-    BLE_SEGMENTED_MODELS = [
-        "H6053",
-        "H6072",
-        "H6102",
-        "H6199",
-        "H617A",
-        "H617C",
-        "H617E",
-        "H618C",
-    ]
-
-    # Models that expect brightness as percentage (0-100) instead of 0-255
-    BLE_PERCENT_MODELS = ["H6199", "H613A", "H617A", "H617C", "H618C"]
 
     # BLE connection and packet timing parameters
     BLE_KEEPALIVE_INTERVAL = 1.0  # Seconds between keepalive packets
@@ -371,6 +354,43 @@ class GoveeBLE:
 
         # Send the frame with debug logging
         await GoveeBLE.send_single_frame(client, frame)
+
+    @staticmethod
+    async def set_segments_color(client: BleakClient, color, mask_lo, mask_hi):
+        """
+        Paint the segments selected by a bitmask with a single color.
+
+        Segmented Govee lights share the same input system: a color packet in
+        segment mode carries a two-byte segment mask, one bit per segment.
+        ``mask_lo`` selects segments 1-8 (bit 0 = segment 1), ``mask_hi``
+        selects segments 9-15 (bit 0 = segment 9). Repeated calls with
+        different masks/colors let callers build arbitrary patterns.
+
+        Args:
+            client: BleakClient instance connected to the Govee BLE device
+            color: (red, green, blue) tuple with values 0-255
+            mask_lo: Segment mask for segments 1-8
+            mask_hi: Segment mask for segments 9-15
+
+        Returns:
+            None
+        """
+        red, green, blue = color
+        payload = [
+            GoveeBLE.LEDMode.SEGMENTS,
+            0x01,  # Segment color mode
+            red,
+            green,
+            blue,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            mask_lo,
+            mask_hi,
+        ]
+        await GoveeBLE.send_single_packet(client, GoveeBLE.LEDCommand.COLOR, payload)
 
     @staticmethod
     def verify_frame(frame):

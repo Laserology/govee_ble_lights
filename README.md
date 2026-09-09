@@ -59,6 +59,81 @@ For Direct BLE Control:
 For Govee API Control:
 - Retrieve Govee-API-Key as described [here](https://developer.govee.com/reference/apply-you-govee-api-key), setup integration with API type ad fill your API key.
 
+### Device data (`config.json`)
+
+All bundled, model-specific data for the integration lives in a single file,
+`custom_components/govee-ble-lights/config.json`. It is the only place device
+models are listed or described — the code never hard-codes models:
+
+```json
+{
+  "devices": {
+    "H6006": {},
+    "H6053": { "segmented": true },
+    "H613A": { "brightness_percent": true },
+    "H6199": { "segmented": true, "brightness_percent": true }
+  }
+}
+```
+
+Per-model options:
+
+- `segmented` — the device has individually addressable LED segments and needs
+  segment-aware color commands.
+- `segments` — how many addressable segments the device has (segmented models
+  only). Defaults to 15, the protocol limit; set it when a model differs (e.g.
+  H6053 is 12).
+- `brightness_percent` — the device expects brightness as a percentage (0-100)
+  instead of a raw byte (0-255).
+- `effects` / `effects_file` — optional *model-specific* effects, merged on top
+  of the shared effects below. `effects_file` is a path relative to the
+  component directory, for definitions too large for `config.json`.
+
+### Effects
+
+Effects are defined once under the top-level `effects` key and are shared by
+all models that can play them (segmented models). Definitions are *patterns*,
+not per-device pixel maps, so one effect works across models with different
+segment counts:
+
+```json
+{
+  "effects": {
+    "Christmas": {
+      "colors": [[255, 0, 0], [255, 255, 255]],
+      "step": 1.0
+    }
+  }
+}
+```
+
+Segment `n` of the device is painted `colors[(n - 1) % len(colors)]` — the
+Christmas palette above alternates red and white on any segment count. Adding
+an effect is just adding another entry here; no code changes needed.
+
+Effects can be **animated** by adding a `step` value in seconds: every step the
+pattern shifts one segment along the strip, so the example above makes red and
+white bands move, updating once per second. Omit `step` for a static pattern.
+
+> **Strip blend quirk:** on some models (e.g. H617C) each addressable segment
+> visually spans *two* bands, the second being a blend with the neighboring
+> segment — a red/white palette reads as red, pink, white, pink. Repeating each
+> color twice (`R R W W`) gives wide stripes, but the transition band between
+> different colors is physical and can't be blanked (a gap would waste a whole
+> segment). Pick palette colors whose transitions look intentional — e.g. warm
+> white blends with red to a soft orange instead of pink.
+
+The effect dropdown also lists a `None` entry: selecting it leaves effect mode
+and repaints the whole light with the last solid color chosen before the
+effect, so the pattern is actually cleared (not just deselected).
+
+To confirm a model's segment count or add a model-specific effect/override,
+edit its entry under `devices`.
+
+> Note: effects paint segments directly, so they only appear on segmented
+> models. If the strip layout looks wrong on your model, the `segments` count
+> is probably off — adjust it in `config.json` and restart.
+
 ## Usage
 
 With the integration setup, your Govee devices will appear as entities within HomeAssistant. All you need to do is select your device model when adding it.
