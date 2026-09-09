@@ -25,19 +25,20 @@ addresses segments 9-15 (bit 0 = segment 9).
 
 from __future__ import annotations
 
-from .layouts import SEQUENTIAL, expand_palette
+import asyncio
+import time
+
 from .models import MAX_SEGMENT_COUNT
 
 
 def segment_colors(
-    effect: dict, segment_count: int, offset: int = 0, layout: str = SEQUENTIAL
+    effect: dict, segment_count: int, offset: int = 0
 ) -> list[list[int]]:
     """
     Resolve an effect definition into one color per segment (address).
 
-    The palette is first expanded for the model's segment ``layout`` (see
-    ``layouts.py``), so effect definitions always stay in visible terms and
-    blended strips get the address stretching for free.
+    Palette colors map one-to-one to segments and the list repeats across
+    them, so one definition works on any segment count.
 
     Args:
         effect: Effect definition dict. Currently supports:
@@ -45,7 +46,6 @@ def segment_colors(
         segment_count: Number of segments on the target device (<= 15).
         offset: How many positions to shift the palette before applying it.
             Animation advances this each step to make the pattern move.
-        layout: Segment layout name used to expand the palette.
 
     Returns:
         list[list[int]]: A color per segment, in segment order.
@@ -62,10 +62,9 @@ def segment_colors(
         ):
             raise ValueError(f"Invalid color in effect: {raw_color}")
 
-    palette = expand_palette(layout, colors)
     count = min(segment_count, MAX_SEGMENT_COUNT)
     return [
-        list(palette[(offset + segment) % len(palette)]) for segment in range(count)
+        list(colors[(offset + segment) % len(colors)]) for segment in range(count)
     ]
 
 
@@ -98,32 +97,6 @@ def segments_to_writes(segment_colors: list[list[int]]) -> list[dict]:
     ]
 
 
-def render_pattern(
-    effect: dict, segment_count: int, offset: int = 0, layout: str = SEQUENTIAL
-) -> list[dict]:
-    """
-    Resolve an effect definition into per-color segment writes.
-
-    Convenience wrapper equivalent to
-    ``segments_to_writes(segment_colors(effect, segment_count, offset, layout))``.
-
-    Args:
-        effect: Effect definition dict (see :func:`segment_colors`).
-        segment_count: Number of segments on the target device (<= 15).
-        offset: Palette shift used by animations.
-        layout: Segment layout name used to expand the palette.
-
-    Returns:
-        list[dict]: Minimal per-color writes (see :func:`segments_to_writes`).
-
-    Raises:
-        ValueError: If the effect definition is malformed.
-    """
-    return segments_to_writes(
-        segment_colors(effect, segment_count, offset, layout=layout)
-    )
-
-
 def interpolate_segments(
     from_colors: list[list[int]], to_colors: list[list[int]], fraction: float
 ) -> list[list[int]]:
@@ -143,3 +116,54 @@ def interpolate_segments(
         [round(source + (target - source) * fraction) for source, target in zip(f, t)]
         for f, t in zip(from_colors, to_colors)
     ]
+
+
+async def run_fade(
+    start: list[list[int]],
+    target: list[list[int]],
+    fade: float,
+    interval: float,
+    send_frame,
+    is_current,
+) -> None:
+    """
+    Drive a wall-clock paced crossfade from *start* to *target*.
+
+    The exact target is written as the *final frame of the window*, not after
+    it: the loop reserves the measured write time of one frame so the target
+    lands by ``fade``. An extra post-window write would stretch every
+    transition to ``fade`` + one write latency - with ``fade`` equal to the
+    animation step that pushed each step past its slot and the cadence
+    visibly lagged. Frames are drawn against elapsed time so BLE write
+    latency can neither stretch the fade nor let animation steps collide.
+
+    Args:
+        start: Starting per-segment colors.
+        target: Target per-segment colors (same length as start).
+        fade: Total fade duration in seconds (> 0).
+        interval: Maximum spacing between frames.
+        send_frame: Async callback painting one interpolated frame.
+        is_current: Callable returning False once this fade was superseded;
+            the fade then aborts (without writing the final target).
+    """
+    if fade <= 0:
+        await send_frame(target)
+        return
+
+    begin = time.monotonic()
+    last_write = 0.0
+    while is_current():
+        elapsed = time.monotonic() - begin
+        # Not enough time left for another interpolated frame's write: the
+        # exact target becomes the final frame, landing at roughly ``fade``.
+        if elapsed + last_write >= fade:
+            await send_frame(target)
+            break
+        fraction = elapsed / fade
+        # The start state is already on the strip; writing it again is wasted
+        # traffic on an already write-bound link.
+        if fraction > 0:
+            write_start = time.monotonic()
+            await send_frame(interpolate_segments(start, target, fraction))
+            last_write = time.monotonic() - write_start
+        await asyncio.sleep(min(interval, max(0.0, fade - (time.monotonic() - begin))))

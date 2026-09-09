@@ -12,11 +12,20 @@ from enum import IntEnum
 import asyncio
 import logging
 import array
+import time
+from weakref import WeakKeyDictionary
 
 import bleak_retry_connector as brc
 from bleak import BleakClient
 
 _LOGGER = logging.getLogger(__name__)
+
+# Per-client transport state. The write lock serializes every packet on a
+# connection - a whole multi-packet frame is sent under one lock hold so the
+# keepalive (or a racing service call) can never interleave between its
+# writes, and ``last_write`` lets the keepalive loop skip pings while the
+# link is demonstrably active.
+_client_transport: WeakKeyDictionary = WeakKeyDictionary()
 
 
 class GoveeBLE:
@@ -158,27 +167,36 @@ class GoveeBLE:
             await asyncio.sleep(0.05)
 
     @staticmethod
+    def _transport_for(client: BleakClient) -> dict:
+        """Return the per-client lock + last-write-time dict (created lazily)."""
+        transport = _client_transport.get(client)
+        if transport is None:
+            transport = {"lock": asyncio.Lock(), "last_write": 0.0}
+            _client_transport[client] = transport
+        return transport
+
+    @staticmethod
+    def keepalive_due(client: BleakClient) -> bool:
+        """True when no packet was written recently, so a ping is worthwhile.
+
+        During a fade or animation the link is being written to constantly;
+        pinging then only adds traffic and risks stalling a frame, so the
+        keepalive loop skips it.
+        """
+        transport = GoveeBLE._transport_for(client)
+        return (
+            time.monotonic() - transport["last_write"]
+            >= GoveeBLE.BLE_KEEPALIVE_INTERVAL
+        )
+
+    @staticmethod
     async def send_keepalive_packet(client: BleakClient):
-        """Send the minimal keepalive frame (0xAA + zero padding + checksum)."""
-
-        # Start with the frame type byte
-        frame = bytes([0xAA])
-
-        # Pad frame data to 19 bytes (plus checksum makes 20 total)
-        frame += bytes([0] * (19 - len(frame)))
-
-        # Calculate the XOR checksum of all data bytes
-        # This provides integrity verification for the packet
-        checksum = 0
-        for b in frame:
-            checksum ^= b
-
-        # Append the checksum byte to complete the frame
-        frame += bytes([GoveeBLE.sign_payload(frame)])
-
-        # Send the frame without expecting a response
-        # Note: We pass frame directly to send_single_frame with no response
-        await GoveeBLE.send_single_frame(client, frame, False)
+        """Send the minimal keepalive frame (REQUEST + zero payload)."""
+        await GoveeBLE.send_single_frame(
+            client,
+            GoveeBLE.build_packet(GoveeBLE.LEDFrameType.REQUEST, 0, []),
+            False,
+        )
 
     @staticmethod
     async def send_single_packet(
@@ -207,38 +225,13 @@ class GoveeBLE:
         ):
             raise ValueError("Invalid payload")
 
-        # Payload must not exceed 17 bytes (plus checksum)
-        if len(payload) > 17:
-            raise ValueError("Payload too long")
-
-        # Convert command to single byte
-        cmd = cmd & 0xFF
-        # Convert payload to bytes if it's a list
-        payload = bytes(payload)
-
-        # Build the frame: frame type + command + payload
-        # The frame type determines if the device will respond or execute
-        frame = bytes([frame_type, cmd]) + bytes(payload)
-
-        # Pad frame data to 19 bytes (plus checksum makes 20 total)
-        frame += bytes([0] * (19 - len(frame)))
-
-        # Calculate the XOR checksum of all data bytes
-        # This provides integrity verification for the packet
-        checksum = 0
-        for b in frame:
-            checksum ^= b
-
-        # Append the signed checksum byte to complete the frame
-        frame += bytes([GoveeBLE.sign_payload(frame)])
-
-        # Send the frame with debug logging
-        await GoveeBLE.send_single_frame(client, frame)
+        await GoveeBLE.send_single_frame(
+            client, GoveeBLE.build_packet(frame_type, cmd, payload)
+        )
 
     @staticmethod
     async def set_segments_color(client: BleakClient, color, mask_lo, mask_hi):
-        """
-        Paint the segments selected by a bitmask with one color.
+        """Paint the segments selected by a bitmask with one color.
 
         ``mask_lo`` selects segments 1-8 (bit 0 = segment 1), ``mask_hi``
         segments 9-15 (bit 0 = segment 9). Repeated calls with different
@@ -250,22 +243,76 @@ class GoveeBLE:
             mask_lo: Segment mask for segments 1-8.
             mask_hi: Segment mask for segments 9-15.
         """
+        await GoveeBLE.send_single_frame(
+            client, GoveeBLE.build_segment_packet(color, mask_lo, mask_hi)
+        )
+
+    @staticmethod
+    def build_packet(frame_type, cmd, payload) -> bytes:
+        """Build a signed 20-byte packet: frame_type, cmd, zero-padded
+        payload, then the XOR checksum byte. Raises ValueError for oversized
+        payloads.
+        """
+        if not isinstance(payload, bytes) and not (
+            isinstance(payload, list) and all(isinstance(x, int) for x in payload)
+        ):
+            raise ValueError("Invalid payload")
+        if len(payload) > 17:
+            raise ValueError("Payload too long")
+
+        frame = bytes([frame_type & 0xFF, cmd & 0xFF]) + bytes(payload)
+        frame += bytes([0] * (19 - len(frame)))
+        return frame + bytes([GoveeBLE.sign_payload(frame)])
+
+    @staticmethod
+    def build_segment_packet(color, mask_lo, mask_hi) -> bytes:
+        """Build the packet painting the given segment mask with one color."""
         red, green, blue = color
-        payload = [
-            GoveeBLE.LEDMode.SEGMENTS,
-            0x01,  # Segment color mode
-            red,
-            green,
-            blue,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            mask_lo,
-            mask_hi,
-        ]
-        await GoveeBLE.send_single_packet(client, GoveeBLE.LEDCommand.COLOR, payload)
+        return GoveeBLE.build_packet(
+            GoveeBLE.LEDFrameType.COMMAND,
+            GoveeBLE.LEDCommand.COLOR,
+            [
+                GoveeBLE.LEDMode.SEGMENTS,
+                0x01,  # Segment color mode
+                red,
+                green,
+                blue,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                mask_lo,
+                mask_hi,
+            ],
+        )
+
+    @staticmethod
+    def build_color_packet(red, green, blue) -> bytes:
+        """Build the packet setting a solid color on a non-segmented model."""
+        return GoveeBLE.build_packet(
+            GoveeBLE.LEDFrameType.COMMAND,
+            GoveeBLE.LEDCommand.COLOR,
+            [GoveeBLE.LEDMode.MANUAL, red, green, blue],
+        )
+
+    @staticmethod
+    async def send_writes(client: BleakClient, frames: list, log_frame=True) -> None:
+        """Send a set of pre-built frames as one atomic visual update.
+
+        All frames are written under a single lock hold, so another task
+        (keepalive ping, a racing service call) cannot interleave between the
+        packets that make up one rendering frame, and the device sees the
+        update as a complete, ordered unit.
+
+        Args:
+            client: Connected BleakClient.
+            frames: Complete 20-byte frames to send, in order.
+            log_frame: Log each frame; disable to reduce spam.
+        """
+        async with GoveeBLE._transport_for(client)["lock"]:
+            for frame in frames:
+                await GoveeBLE._write_frame(client, frame, log_frame)
 
     @staticmethod
     def verify_frame(frame):
@@ -294,36 +341,40 @@ class GoveeBLE:
         return head, cmd, payload
 
     @staticmethod
-    # Sends a single BLE data frame. log_frame indicates whether or not to log it.
-    # Turn log_frame off when sending keepalive packets to prevent log spam.
     async def send_single_frame(client: BleakClient, frame, log_frame=True) -> None:
         """
-        Write a pre-built frame to the control characteristic, reconnecting
-        if disconnected (up to BLE_HANDLE_RETRY times). Expects a complete
-        20-byte frame including the checksum byte.
+        Write one pre-built 20-byte frame to the control characteristic,
+        serialized with all other writes on this connection.
 
         Args:
             client: Connected BleakClient.
-            frame: Complete frame bytes to send.
+            frame: Complete 20-byte frame including the checksum byte.
             log_frame: Log the frame; disable for keepalive to reduce spam.
         """
+        async with GoveeBLE._transport_for(client)["lock"]:
+            await GoveeBLE._write_frame(client, frame, log_frame)
+
+    @staticmethod
+    async def _write_frame(client: BleakClient, frame, log_frame: bool) -> None:
+        """Write one frame without taking the write lock; reconnect first if
+        disconnected (up to BLE_HANDLE_RETRY times). Update the transport's
+        last-write timestamp so the keepalive loop knows the link is active.
+        """
         retry = 0
-        # Retry connection if client is not connected
         while not client.is_connected:
             if retry >= GoveeBLE.BLE_HANDLE_RETRY:
                 raise TimeoutError
             await client.connect()
             retry += 1
 
-        # Log the frame if logging is enabled
         if log_frame:
             _LOGGER.debug("Writing frame: %s", bytes(frame).hex())
 
-        # Write the frame to the control characteristic
-        # The False parameter indicates we're not expecting a response
+        # False = write-without-response (no GATT round trip to wait for)
         await client.write_gatt_char(
             GoveeBLE.BLE_UUID_CONTROL_CHARACTERISTIC, frame, False
         )
+        GoveeBLE._transport_for(client)["last_write"] = time.monotonic()
 
     @staticmethod
     async def read_attribute(client: BleakClient, attribute: LEDCommand):
@@ -380,6 +431,12 @@ class GoveeBLE:
                             await reconnect_callback()
                         except Exception as cb_err:
                             _LOGGER.debug("Reconnect callback failed: %s", cb_err)
+
+                # Skip the ping while writes are flowing (fades/animations);
+                # the connection is obviously alive and a ping could stall a
+                # frame mid-send.
+                if not GoveeBLE.keepalive_due(client):
+                    continue
 
                 # Send data packet to keep the connection alive
                 await GoveeBLE.send_keepalive_packet(client)

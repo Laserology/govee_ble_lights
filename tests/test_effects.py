@@ -8,11 +8,9 @@ _support.ensure()
 
 from govee_ble_lights.effects import (  # noqa: E402
     interpolate_segments,
-    render_pattern,
     segment_colors,
     segments_to_writes,
 )
-from govee_ble_lights.layouts import BLENDED, SEQUENTIAL  # noqa: E402
 
 RED = [255, 0, 0]
 GREEN = [0, 255, 0]
@@ -20,41 +18,34 @@ BLUE = [0, 0, 255]
 
 
 class TestSegmentColors(unittest.TestCase):
-    def test_sequential_cycles_palette(self):
+    def test_cycles_palette(self):
         effect = {"colors": [RED, GREEN, BLUE]}
         self.assertEqual(
-            segment_colors(effect, 5, layout=SEQUENTIAL),
+            segment_colors(effect, 5),
             [RED, GREEN, BLUE, RED, GREEN],
-        )
-
-    def test_blended_stretches_palette(self):
-        effect = {"colors": [RED, GREEN]}
-        self.assertEqual(
-            segment_colors(effect, 4, layout=BLENDED),
-            [RED, RED, GREEN, GREEN],
         )
 
     def test_offset_shifts_pattern(self):
         effect = {"colors": [RED, GREEN, BLUE]}
         self.assertEqual(
-            segment_colors(effect, 3, offset=1, layout=SEQUENTIAL),
+            segment_colors(effect, 3, offset=1),
             [GREEN, BLUE, RED],
         )
 
     def test_clamps_to_protocol_limit(self):
         effect = {"colors": [RED]}
         # Segment_count beyond the 15-segment protocol limit is clamped.
-        self.assertEqual(len(segment_colors(effect, 40, layout=SEQUENTIAL)), 15)
+        self.assertEqual(len(segment_colors(effect, 40)), 15)
 
     def test_rejects_empty_palette(self):
         with self.assertRaises(ValueError):
-            segment_colors({"colors": []}, 5, layout=SEQUENTIAL)
+            segment_colors({"colors": []}, 5)
 
     def test_rejects_invalid_color(self):
         with self.assertRaises(ValueError):
-            segment_colors({"colors": [[300, 0, 0]]}, 5, layout=SEQUENTIAL)
+            segment_colors({"colors": [[300, 0, 0]]}, 5)
         with self.assertRaises(ValueError):
-            segment_colors({"colors": [[1, 2]]}, 5, layout=SEQUENTIAL)
+            segment_colors({"colors": [[1, 2]]}, 5)
 
 
 class TestSegmentsToWrites(unittest.TestCase):
@@ -76,16 +67,6 @@ class TestSegmentsToWrites(unittest.TestCase):
         self.assertEqual(red["mask_lo"], 0xFF)
         self.assertEqual(red["mask_hi"], 0x01)  # segment 9
         self.assertEqual(green["mask_hi"], 0x7E)  # segments 10-15
-
-
-class TestRenderPattern(unittest.TestCase):
-    def test_wrapper_equivalence(self):
-        effect = {"colors": [RED, GREEN]}
-        result = render_pattern(effect, 6, layout=BLENDED)
-        self.assertEqual(
-            result,
-            segments_to_writes(segment_colors(effect, 6, layout=BLENDED)),
-        )
 
 
 class TestInterpolateSegments(unittest.TestCase):

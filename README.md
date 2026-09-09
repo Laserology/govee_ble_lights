@@ -83,10 +83,6 @@ Per-model options:
 - `segments` — how many addressable segments the device has (segmented models
   only). Defaults to 15, the protocol limit; set it when a model differs (e.g.
   H6053 is 12).
-- `layout` — how addresses map to visible bands (segmented models only):
-  `sequential` (each address is one visible band) or `blended` (each address
-  shows two bands, the second a blend with its neighbour — e.g. H617C).
-  Defaults to `sequential`.
 - `brightness_percent` — the device expects brightness as a percentage (0-100)
   instead of a raw byte (0-255).
 - `effects` / `effects_file` — optional *model-specific* effects, merged on top
@@ -103,30 +99,41 @@ segment counts:
 ```json
 {
   "effects": {
-    "Christmas": {
-      "colors": [[255, 0, 0], [255, 255, 255]],
-      "step": 1.0
+    "Warm Christmas": {
+      "colors": [[255, 0, 0], [255, 132, 43]],
+      "step": 1.0,
+      "fade": 0.9
     }
   }
 }
 ```
 
 Segment `n` of the device is painted `colors[(n - 1) % len(colors)]` — the
-Christmas palette above alternates red and white on any segment count. Adding
-an effect is just adding another entry here; no code changes needed.
+Warm Christmas palette above alternates red and warm white on any segment
+count. Adding an effect is just adding another entry here; no code changes
+needed.
 
-Bundled effects: `Christmas`, `Christmas Warm`, `Halloween`, `New Year`,
+Bundled effects: `Warm Christmas`, `Halloween`, `New Year`,
 `Rainbow`, `Sunset`, `Ocean`, `Valentine`, `America`.
 
 Effects can be **animated** by adding a `step` value in seconds: every step the
 pattern shifts one segment along the strip, so the example above makes red and
-white bands move, updating once per second. Omit `step` for a static pattern.
+warm white bands move. Omit `step` for a static pattern. Set `fade` to roughly
+`step - 0.1` — the longest transition with a safe margin so it completes
+before the next shift; `fade: 0` gives crisp one-segment jumps.
 
 Fades are done in software (most Govee firmware has no native crossfade):
 colors are interpolated and re-sent ~30 times per second. Set `fade` on an
-effect (seconds) to crossfade between its frames instead of stepping —
-equal `step` and `fade` makes the pattern morph continuously. Top-level
-values control general transitions:
+effect (seconds) to crossfade between its frames instead of stepping — the
+bundled animations use `step - 0.1`, the longest transition with a safe
+margin so it completes before the next shift (`fade == step` runs
+back-to-back without any settle and reads as choppy on a write-bound BLE
+link; the exception is *directional* flows such as a multi-color rainbow,
+where the pattern keeps moving one way and `fade == step` is the classic
+smooth sweep. Rainbow frames are also heavy — one write per color — so give
+it a `fade` window long enough to fit a frame, i.e. roughly one second for a
+five-to-seven-color palette.)
+Top-level values control general transitions:
 
 ```json
 {
@@ -155,16 +162,6 @@ data:
   transition: 3
 ```
 
-> **Strip blend quirk:** on some models (e.g. H617C) each addressable segment
-> visually spans *two* bands, the second being a blend with the neighboring
-> segment — a red/white palette reads as red, pink, white, pink. Set that
-> model's `layout` to `blended` and the integration stretches each palette
-> color across two addresses automatically, producing clean wide stripes;
-> effect definitions stay simple. The transition band between different
-> colors is physical and can't be blanked — pick palette colors whose
-> transitions look intentional (warm white blends with red to a soft orange
-> instead of pink).
-
 The effect dropdown also lists a `None` entry: selecting it leaves effect mode
 and repaints the whole light with the last solid color chosen before the
 effect, so the pattern is actually cleared (not just deselected).
@@ -172,9 +169,9 @@ effect, so the pattern is actually cleared (not just deselected).
 To confirm a model's segment count or add a model-specific effect/override,
 edit its entry under `devices`.
 
-> Note: effects paint segments directly, so they only appear on segmented
-> models. If the strip layout looks wrong on your model, the `segments` count
-> is probably off — adjust it in `config.json` and restart.
+> **Note:** effects paint segments directly, so they only appear on segmented
+> models. If the strip pattern looks off on your model, the `segments` count
+> is probably wrong — adjust it in `config.json` and restart.
 
 ## Usage
 
@@ -225,7 +222,7 @@ We aim to continuously improve this integration by:
 
 ## Development (tests)
 
-The pure logic modules (`models`, `effects`, `layouts`) have unit tests — no
+The pure logic modules (`models`, `effects`) have unit tests — no
 Home Assistant runtime or hardware needed:
 
 ```

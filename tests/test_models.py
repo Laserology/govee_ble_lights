@@ -36,26 +36,29 @@ class TestModelFlags(unittest.TestCase):
         self.assertEqual(models.get_segment_count("H617C"), 15)
         self.assertEqual(models.get_segment_count("NOPE"), 15)
 
-    def test_layout(self):
-        self.assertEqual(models.get_model_layout("H617C"), "blended")
-        self.assertEqual(models.get_model_layout("H6006"), "sequential")
-        self.assertEqual(models.get_model_layout("NOPE"), "sequential")
-
 
 class TestEffects(unittest.TestCase):
     def test_shared_effects_exist(self):
         effects = models.get_effects()
-        self.assertIn("Christmas", effects)
-        self.assertIn("Christmas Warm", effects)
+        self.assertIn("Warm Christmas", effects)
+        self.assertIn("Halloween", effects)
+
+    def test_warm_christmas_is_merged_red_and_warm_white(self):
+        # Christmas and Christmas Warm were merged: warm white (#ff842b)
+        # accounts for the LEDs not being true color.
+        self.assertEqual(
+            models.get_effects()["Warm Christmas"]["colors"],
+            [[255, 0, 0], [255, 132, 43]],
+        )
 
     def test_model_effects_include_shared(self):
         effects = models.get_model_effects("H617C")
-        self.assertIn("Christmas", effects)
+        self.assertIn("Warm Christmas", effects)
         self.assertGreaterEqual(len(effects), 2)
 
     def test_unknown_model_has_shared_effects(self):
         # Shared effects apply to every model; per-model overrides add on top.
-        self.assertIn("Christmas", models.get_model_effects("H6006"))
+        self.assertIn("Warm Christmas", models.get_model_effects("H6006"))
 
 
 class TestFades(unittest.TestCase):
@@ -66,15 +69,14 @@ class TestFades(unittest.TestCase):
 
 
 class TestBundledEffects(unittest.TestCase):
-    def test_all_effects_render_on_both_layouts(self):
-        """Every bundled effect must render for sequential and blended layouts."""
+    def test_all_effects_render(self):
+        """Every bundled effect must render for a full-length strip."""
         for name, effect in models.get_effects().items():
-            for layout in ("sequential", "blended"):
-                colors = effects.segment_colors(effect, 15, layout=layout)
-                self.assertEqual(len(colors), 15)
-                for color in colors:
-                    self.assertEqual(len(color), 3)
-                    self.assertTrue(all(0 <= c <= 255 for c in color))
+            colors = effects.segment_colors(effect, 15)
+            self.assertEqual(len(colors), 15)
+            for color in colors:
+                self.assertEqual(len(color), 3)
+                self.assertTrue(all(0 <= c <= 255 for c in color))
 
     def test_animation_timings_are_valid(self):
         for name, effect in models.get_effects().items():

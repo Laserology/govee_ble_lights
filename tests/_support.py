@@ -17,6 +17,7 @@ COMPONENT_DIR = (
 
 def ensure() -> None:
     """Register the package alias and add the component path (idempotent)."""
+    _install_deps()
     if PACKAGE_NAME in sys.modules:
         return
 
@@ -27,3 +28,21 @@ def ensure() -> None:
     package.__path__ = [str(component)]
     package.__file__ = str(component / "__init__.py")
     sys.modules[PACKAGE_NAME] = package
+
+
+def _install_deps() -> None:
+    """Stub third-party modules the component imports when they are not
+    installed, so tests can run without a Home Assistant / BLE stack."""
+    for name, attrs in (
+        ("bleak", {"BleakClient": type("BleakClient", (), {})}),
+        ("bleak_retry_connector", {"establish_connection": lambda *a, **k: None}),
+    ):
+        if name in sys.modules:
+            continue
+        try:
+            __import__(name)
+        except ImportError:
+            module = types.ModuleType(name)
+            for attr, value in attrs.items():
+                setattr(module, attr, value)
+            sys.modules[name] = module

@@ -20,7 +20,7 @@ Schema (config.json)
       },
       "fade": 1.0,
       "effects": {
-        "Christmas": { "colors": [[255, 0, 0], [255, 255, 255]] }
+        "Warm Christmas": { "colors": [[255, 0, 0], [255, 132, 43]] }
       }
     }
 
@@ -30,10 +30,6 @@ Per-model options:
   segment-aware color commands.
 - ``segments``: number of individually addressable segments (only meaningful
   for segmented models). Defaults to :data:`DEFAULT_SEGMENT_COUNT`.
-- ``layout``: how addresses map to visible bands: ``sequential`` (each
-  address is one visible band) or ``blended`` (each address shows two
-  bands, the second blended with its neighbour — e.g. H617C).
-  Defaults to ``sequential``.
 - ``brightness_percent``: device expects brightness as a percentage (0-100)
   instead of a raw byte (0-255).
 - ``effects``: extra effect definitions for this model (added on top of the
@@ -65,9 +61,10 @@ Current format (static or animated segment pattern):
 
 .. code-block:: json
 
-    "Christmas": {
-      "colors": [[255, 0, 0], [255, 255, 255]],
-      "step": 1.0
+    "Warm Christmas": {
+      "colors": [[255, 0, 0], [255, 132, 43]],
+      "step": 1.0,
+      "fade": 0.9
     }
 
 Segment ``n`` of the device is set to
@@ -76,10 +73,12 @@ segments regardless of how many segments the model has. The optional ``step``
 (seconds) makes the effect animated: every ``step`` the pattern shifts by one
 segment, which looks like the colors moving along the strip. Without ``step``
 the effect is static. The optional ``fade`` (seconds) crossfades between
-consecutive frames in software instead of jumping; when it equals ``step``
-the pattern morphs continuously. Without ``fade``, the top-level ``fade``
-value is used. Animated/moving effects can be extended later with new keys on
-the same definition object.
+consecutive frames in software instead of jumping; set it to ``step - 0.1``
+so each transition completes with a safe margin before the next shift
+(``fade: 0`` steps crisply). ``fade == step`` runs back-to-back transitions
+that never settle and read as choppy on write-bound BLE links. Animated/
+moving effects can be extended later with new keys on the same definition
+object.
 """
 
 from __future__ import annotations
@@ -136,18 +135,6 @@ def get_segment_count(model: str) -> int:
         int(_model_config(model).get("segments", DEFAULT_SEGMENT_COUNT)),
         MAX_SEGMENT_COUNT,
     )
-
-
-def get_model_layout(model: str) -> str:
-    """Return the segment layout name for *model* (see ``layouts.py``).
-
-    Falls back to ``sequential`` when the model does not declare a layout or
-    declares an unknown one.
-    """
-    layout = _model_config(model).get("layout", "sequential")
-    if layout not in ("sequential", "blended"):
-        return "sequential"
-    return layout
 
 
 def get_effects() -> dict[str, dict]:

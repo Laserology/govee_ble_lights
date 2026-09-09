@@ -48,18 +48,15 @@
     "H6173": {},
     "H617A": {
       "segmented": true,
-      "brightness_percent": true,
-      "layout": "blended"
+      "brightness_percent": true
     },
     "H617C": {
       "segmented": true,
-      "brightness_percent": true,
-      "layout": "blended"
+      "brightness_percent": true
     },
     "H617E": {
       "segmented": true,
-      "brightness_percent": true,
-      "layout": "blended"
+      "brightness_percent": true
     },
     "H617F": {},
     "H618A": {},
@@ -108,20 +105,13 @@
     "H70B1": {}
   },
   "effects": {
-    "Christmas": {
-      "colors": [
-        [ 255, 0, 0 ],
-        [ 255, 255, 255 ]
-      ],
-      "step": 1.0
-    },
-    "Christmas Warm": {
+    "Warm Christmas": {
       "colors": [
         [ 255, 0, 0 ],
         [ 255, 132, 43 ]
       ],
       "step": 1.0,
-      "fade": 1.0
+      "fade": 0.9
     },
     "Halloween": {
       "colors": [
@@ -129,7 +119,7 @@
         [ 128, 0, 200 ]
       ],
       "step": 1.0,
-      "fade": 0.5
+      "fade": 0.9
     },
     "New Year": {
       "colors": [
@@ -137,20 +127,19 @@
         [ 255, 255, 255 ]
       ],
       "step": 1.0,
-      "fade": 1.0
+      "fade": 0.9
     },
     "Rainbow": {
       "colors": [
         [ 255, 0, 0 ],
         [ 255, 140, 0 ],
-        [ 255, 255, 0 ],
         [ 0, 255, 0 ],
         [ 0, 200, 255 ],
         [ 0, 80, 255 ],
         [ 160, 0, 255 ]
       ],
-      "step": 0.5,
-      "fade": 0.5
+      "step": 1.0,
+      "fade": 0.9
     },
     "Sunset": {
       "colors": [
@@ -158,7 +147,7 @@
         [ 255, 100, 120 ]
       ],
       "step": 1.5,
-      "fade": 1.5
+      "fade": 1.4
     },
     "Ocean": {
       "colors": [
@@ -166,15 +155,16 @@
         [ 0, 220, 190 ]
       ],
       "step": 1.5,
-      "fade": 1.5
+      "fade": 1.4
     },
     "Valentine": {
       "colors": [
-        [ 220, 20, 80 ],
-        [ 255, 120, 180 ]
+        [ 255, 105, 180 ],
+        [ 255, 105, 180 ],
+        [ 255, 255, 255 ]
       ],
       "step": 1.0,
-      "fade": 0.5
+      "fade": 0.9
     },
     "America": {
       "colors": [
@@ -183,7 +173,7 @@
         [ 0, 0, 220 ]
       ],
       "step": 0.8,
-      "fade": 0.4
+      "fade": 0.7
     }
   },
   "fade": 0.5,
