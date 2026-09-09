@@ -30,6 +30,10 @@ Per-model options:
   segment-aware color commands.
 - ``segments``: number of individually addressable segments (only meaningful
   for segmented models). Defaults to :data:`DEFAULT_SEGMENT_COUNT`.
+- ``layout``: how addresses map to visible bands: ``sequential`` (each
+  address is one visible band) or ``blended`` (each address shows two
+  bands, the second blended with its neighbour — e.g. H617C).
+  Defaults to ``sequential``.
 - ``brightness_percent``: device expects brightness as a percentage (0-100)
   instead of a raw byte (0-255).
 - ``effects``: extra effect definitions for this model (added on top of the
@@ -132,6 +136,18 @@ def get_segment_count(model: str) -> int:
         int(_model_config(model).get("segments", DEFAULT_SEGMENT_COUNT)),
         MAX_SEGMENT_COUNT,
     )
+
+
+def get_model_layout(model: str) -> str:
+    """Return the segment layout name for *model* (see ``layouts.py``).
+
+    Falls back to ``sequential`` when the model does not declare a layout or
+    declares an unknown one.
+    """
+    layout = _model_config(model).get("layout", "sequential")
+    if layout not in ("sequential", "blended"):
+        return "sequential"
+    return layout
 
 
 def get_effects() -> dict[str, dict]:

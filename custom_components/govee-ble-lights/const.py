@@ -1,17 +1,7 @@
-"""
-Global constants file
-Used to store widely used information for the Govee BLE Lights integration.
+"""Global constants shared across the integration."""
 
-This module defines all constant values, domain identifiers, and configuration
-keys that are used throughout the integration. These constants ensure consistency
-and make the codebase easier to maintain and understand.
-
-"""
-
-# Domain identifier for the Govee BLE Lights integration in Home Assistant
-# This unique string identifies this custom component in Home Assistant's system
+# Domain identifier for the integration
 DOMAIN = "govee-ble-lights"
 
-# Configuration key used to identify BLE as the configuration type
-# This is used during the config flow to distinguish between different integration types
+# Configuration key that identifies BLE as the configuration type
 CONF_TYPE_BLE = "BLE"

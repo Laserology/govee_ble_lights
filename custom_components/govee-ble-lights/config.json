@@ -48,14 +48,18 @@
     "H6173": {},
     "H617A": {
       "segmented": true,
-      "brightness_percent": true
+      "brightness_percent": true,
+      "layout": "blended"
     },
     "H617C": {
       "segmented": true,
-      "brightness_percent": true
+      "brightness_percent": true,
+      "layout": "blended"
     },
     "H617E": {
-      "segmented": true
+      "segmented": true,
+      "brightness_percent": true,
+      "layout": "blended"
     },
     "H617F": {},
     "H618A": {},
@@ -113,16 +117,6 @@
         ],
         [
           255,
-          0,
-          0
-        ],
-        [
-          255,
-          255,
-          255
-        ],
-        [
-          255,
           255,
           255
         ]
@@ -135,16 +129,6 @@
           255,
           0,
           0
-        ],
-        [
-          255,
-          0,
-          0
-        ],
-        [
-          255,
-          132,
-          43
         ],
         [
           255,

@@ -26,9 +26,7 @@ UNIQUE_DEVICES = {}
 
 
 def internal_unique_devices(uid: str, devices: list) -> list:
-    """For support multiple integrations - bind each device to one integraion.
-    To avoid duplicates.
-    """
+    """Bind each device to one integration entry to avoid duplicates."""
     return [
         device
         for device in devices

@@ -83,6 +83,10 @@ Per-model options:
 - `segments` — how many addressable segments the device has (segmented models
   only). Defaults to 15, the protocol limit; set it when a model differs (e.g.
   H6053 is 12).
+- `layout` — how addresses map to visible bands (segmented models only):
+  `sequential` (each address is one visible band) or `blended` (each address
+  shows two bands, the second a blend with its neighbour — e.g. H617C).
+  Defaults to `sequential`.
 - `brightness_percent` — the device expects brightness as a percentage (0-100)
   instead of a raw byte (0-255).
 - `effects` / `effects_file` — optional *model-specific* effects, merged on top
@@ -150,11 +154,13 @@ data:
 
 > **Strip blend quirk:** on some models (e.g. H617C) each addressable segment
 > visually spans *two* bands, the second being a blend with the neighboring
-> segment — a red/white palette reads as red, pink, white, pink. Repeating each
-> color twice (`R R W W`) gives wide stripes, but the transition band between
-> different colors is physical and can't be blanked (a gap would waste a whole
-> segment). Pick palette colors whose transitions look intentional — e.g. warm
-> white blends with red to a soft orange instead of pink.
+> segment — a red/white palette reads as red, pink, white, pink. Set that
+> model's `layout` to `blended` and the integration stretches each palette
+> color across two addresses automatically, producing clean wide stripes;
+> effect definitions stay simple. The transition band between different
+> colors is physical and can't be blanked — pick palette colors whose
+> transitions look intentional (warm white blends with red to a soft orange
+> instead of pink).
 
 The effect dropdown also lists a `None` entry: selecting it leaves effect mode
 and repaints the whole light with the last solid color chosen before the
@@ -213,6 +219,15 @@ We aim to continuously improve this integration by:
 
 - Supporting more Govee device models for BLE
 - Enhancing the overall user experience and stability
+
+## Development (tests)
+
+The pure logic modules (`models`, `effects`, `layouts`) have unit tests — no
+Home Assistant runtime or hardware needed:
+
+```
+python3 -m unittest discover -s tests
+```
 
 ---
 

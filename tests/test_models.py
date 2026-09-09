@@ -1,0 +1,69 @@
+"""Unit tests for the bundled config.json front-end (models.py)."""
+
+import unittest
+
+import _support
+
+_support.ensure()
+
+from govee_ble_lights import models  # noqa: E402
+
+
+class TestAvailableModels(unittest.TestCase):
+    def test_sorted_and_nonempty(self):
+        available = models.get_available_models()
+        self.assertTrue(available)
+        self.assertEqual(available, sorted(available))
+        self.assertIn("H617C", available)
+        self.assertIn("H613A", available)
+
+
+class TestModelFlags(unittest.TestCase):
+    def test_segmented(self):
+        self.assertTrue(models.is_segmented_model("H617C"))
+        self.assertTrue(models.is_segmented_model("H6053"))
+        self.assertFalse(models.is_segmented_model("H6006"))
+        self.assertFalse(models.is_segmented_model("NOPE"))
+
+    def test_percent_brightness(self):
+        self.assertTrue(models.uses_percent_brightness("H6199"))
+        self.assertFalse(models.uses_percent_brightness("H6006"))
+
+    def test_segment_count(self):
+        # H6053 declares 12; everything else defaults to 15, capped at 15.
+        self.assertEqual(models.get_segment_count("H6053"), 12)
+        self.assertEqual(models.get_segment_count("H6006"), 15)
+        self.assertEqual(models.get_segment_count("H617C"), 15)
+        self.assertEqual(models.get_segment_count("NOPE"), 15)
+
+    def test_layout(self):
+        self.assertEqual(models.get_model_layout("H617C"), "blended")
+        self.assertEqual(models.get_model_layout("H6006"), "sequential")
+        self.assertEqual(models.get_model_layout("NOPE"), "sequential")
+
+
+class TestEffects(unittest.TestCase):
+    def test_shared_effects_exist(self):
+        effects = models.get_effects()
+        self.assertIn("Christmas", effects)
+        self.assertIn("Christmas Warm", effects)
+
+    def test_model_effects_include_shared(self):
+        effects = models.get_model_effects("H617C")
+        self.assertIn("Christmas", effects)
+        self.assertGreaterEqual(len(effects), 2)
+
+    def test_unknown_model_has_shared_effects(self):
+        # Shared effects apply to every model; per-model overrides add on top.
+        self.assertIn("Christmas", models.get_model_effects("H6006"))
+
+
+class TestFades(unittest.TestCase):
+    def test_fade_values_present(self):
+        self.assertGreaterEqual(models.get_default_fade(), 0.0)
+        self.assertGreaterEqual(models.get_fade_on(), 0.0)
+        self.assertGreaterEqual(models.get_fade_off(), 0.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
