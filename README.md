@@ -115,6 +115,9 @@ Segment `n` of the device is painted `colors[(n - 1) % len(colors)]` — the
 Christmas palette above alternates red and white on any segment count. Adding
 an effect is just adding another entry here; no code changes needed.
 
+Bundled effects: `Christmas`, `Christmas Warm`, `Halloween`, `New Year`,
+`Rainbow`, `Sunset`, `Ocean`, `Valentine`, `America`.
+
 Effects can be **animated** by adding a `step` value in seconds: every step the
 pattern shifts one segment along the strip, so the example above makes red and
 white bands move, updating once per second. Omit `step` for a static pattern.

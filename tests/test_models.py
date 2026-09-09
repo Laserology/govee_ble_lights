@@ -6,7 +6,7 @@ import _support
 
 _support.ensure()
 
-from govee_ble_lights import models  # noqa: E402
+from govee_ble_lights import effects, models  # noqa: E402
 
 
 class TestAvailableModels(unittest.TestCase):
@@ -63,6 +63,25 @@ class TestFades(unittest.TestCase):
         self.assertGreaterEqual(models.get_default_fade(), 0.0)
         self.assertGreaterEqual(models.get_fade_on(), 0.0)
         self.assertGreaterEqual(models.get_fade_off(), 0.0)
+
+
+class TestBundledEffects(unittest.TestCase):
+    def test_all_effects_render_on_both_layouts(self):
+        """Every bundled effect must render for sequential and blended layouts."""
+        for name, effect in models.get_effects().items():
+            for layout in ("sequential", "blended"):
+                colors = effects.segment_colors(effect, 15, layout=layout)
+                self.assertEqual(len(colors), 15)
+                for color in colors:
+                    self.assertEqual(len(color), 3)
+                    self.assertTrue(all(0 <= c <= 255 for c in color))
+
+    def test_animation_timings_are_valid(self):
+        for name, effect in models.get_effects().items():
+            step = float(effect.get("step", 0))
+            fade = float(effect.get("fade", models.get_default_fade()))
+            self.assertGreaterEqual(step, 0.0, name)
+            self.assertGreaterEqual(fade, 0.0, name)
 
 
 if __name__ == "__main__":
