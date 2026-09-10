@@ -17,7 +17,7 @@ from homeassistant.const import CONF_ADDRESS, CONF_MODEL, CONF_TYPE
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import DOMAIN, CONF_TYPE_BLE
-from .models import get_available_models
+from .models import detect_model, get_available_models
 
 
 class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -94,11 +94,19 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
         # Prepare to show the confirmation form
         self._set_confirm_only()
 
-        # Define placeholders for the confirmation dialog
-        placeholders = {"name": title, "model": "Device model"}
+        # Govee advertisements embed the model ID (e.g. "Govee_H617C_2482");
+        # pre-select it in the dropdown when it matches a bundled model.
+        detected = detect_model(discovery_info.name)
+        placeholders = {"name": title, "model": detected or "Device model"}
+        schema = {vol.Required(CONF_MODEL): vol.In(self._available_models)}
+        if detected is not None:
+            schema = {
+                vol.Required(CONF_MODEL, default=detected): vol.In(
+                    self._available_models
+                )
+            }
 
         # TODO: We could potentially infer the light model based on BLE advertisement name
-        # This would require reverse-engineering the BLE name format for each Govee model
 
         # Set title placeholders for the confirmation dialog
         self.context["title_placeholders"] = placeholders
@@ -108,12 +116,7 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="bluetooth_confirm",
             description_placeholders=placeholders,
             # Schema defines what input fields to show
-            data_schema=vol.Schema(
-                {
-                    # Dropdown of available Govee models
-                    vol.Required(CONF_MODEL): vol.In(self._available_models)
-                }
-            ),
+            data_schema=vol.Schema(schema),
         )
 
     async def async_step_ble(

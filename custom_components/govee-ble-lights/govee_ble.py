@@ -245,11 +245,19 @@ class GoveeBLE:
         if log_frame:
             _LOGGER.debug("Writing frame: %s", bytes(frame).hex())
 
+        write_begin = time.monotonic()
         # False = write-without-response (no GATT round trip to wait for)
         await client.write_gatt_char(
             GoveeBLE.BLE_UUID_CONTROL_CHARACTERISTIC, frame, False
         )
-        GoveeBLE._transport_for(client)["last_write"] = time.monotonic()
+        transport = GoveeBLE._transport_for(client)
+        transport["last_write"] = time.monotonic()
+        transport["last_write_ms"] = (time.monotonic() - write_begin) * 1000
+
+    @staticmethod
+    def last_write_ms(client: BleakClient) -> float | None:
+        """Milliseconds the most recent write took, or None before any write."""
+        return GoveeBLE._transport_for(client).get("last_write_ms")
 
     @staticmethod
     async def create_connection(ble_device, identifier) -> BleakClient:
@@ -257,7 +265,10 @@ class GoveeBLE:
         retries and recovery). The caller keeps it alive with a keepalive
         task (see ``ensure_connection``)."""
         return await brc.establish_connection(
-            BleakClient, ble_device, identifier, max_attempts=GoveeBLE.BLE_HANDLE_RETRY
+            BleakClient,
+            ble_device,
+            identifier,
+            max_attempts=GoveeBLE.BLE_HANDLE_RETRY,
         )
 
     @staticmethod

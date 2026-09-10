@@ -56,15 +56,20 @@ def segment_colors(
     colors = effect.get("colors")
     if not colors:
         raise ValueError("Effect has no 'colors' list")
+
     for raw_color in colors:
-        if len(raw_color) != 3 or not all(
-            isinstance(channel, int) and 0 <= channel <= 255 for channel in raw_color
-        ):
+        valid = (
+            len(raw_color) == 3
+            and all(isinstance(channel, int) for channel in raw_color)
+            and all(0 <= channel <= 255 for channel in raw_color)
+        )
+        if not valid:
             raise ValueError(f"Invalid color in effect: {raw_color}")
 
     count = min(segment_count, MAX_SEGMENT_COUNT)
     return [
-        list(colors[(offset + segment) % len(colors)]) for segment in range(count)
+        list(colors[(offset + segment) % len(colors)])
+        for segment in range(count)
     ]
 
 
@@ -112,10 +117,15 @@ def interpolate_segments(
         list[list[int]]: Interpolated per-segment colors, channel-wise.
     """
     fraction = max(0.0, min(1.0, fraction))
-    return [
-        [round(source + (target - source) * fraction) for source, target in zip(f, t)]
-        for f, t in zip(from_colors, to_colors)
-    ]
+
+    result = []
+    for from_color, to_color in zip(from_colors, to_colors):
+        mixed = [
+            round(source + (target - source) * fraction)
+            for source, target in zip(from_color, to_color)
+        ]
+        result.append(mixed)
+    return result
 
 
 async def run_fade(
@@ -166,4 +176,6 @@ async def run_fade(
             write_start = time.monotonic()
             await send_frame(interpolate_segments(start, target, fraction))
             last_write = time.monotonic() - write_start
-        await asyncio.sleep(min(interval, max(0.0, fade - (time.monotonic() - begin))))
+        await asyncio.sleep(
+            min(interval, max(0.0, fade - (time.monotonic() - begin)))
+        )

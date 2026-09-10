@@ -84,6 +84,7 @@ object.
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -96,6 +97,26 @@ DEFAULT_SEGMENT_COUNT = 15
 
 # Largest addressable segment count supported by the mask protocol.
 MAX_SEGMENT_COUNT = 15
+
+# Govee model IDs look like ``H6006``, ``H617C`` or ``H61A0`` and appear
+# inside BLE advertisement names (e.g. ``Govee_H617C_2482``).
+_MODEL_PATTERN = re.compile(r"[Hh]\d{2,4}[A-Za-z]?\d?")
+
+
+def detect_model(device_name: str) -> str | None:
+    """Return the known model ID embedded in an advertisement name, if any.
+
+    Govee names typically look like ``Govee_H617C_2482``; any token shaped
+    like a model ID is matched against the bundled model list
+    (case-insensitively). Returns None when no known model appears.
+    """
+    if not device_name:
+        return None
+    available = set(get_available_models())
+    for match in _MODEL_PATTERN.findall(device_name):
+        if match.upper() in available:
+            return match.upper()
+    return None
 
 
 @lru_cache(maxsize=1)

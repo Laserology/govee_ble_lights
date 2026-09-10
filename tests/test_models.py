@@ -61,6 +61,24 @@ class TestEffects(unittest.TestCase):
         self.assertIn("Warm Christmas", models.get_model_effects("H6006"))
 
 
+class TestDetectModel(unittest.TestCase):
+    def test_detects_model_in_govee_name(self):
+        self.assertEqual(models.detect_model("Govee_H617C_2482"), "H617C")
+
+    def test_plain_model_name(self):
+        self.assertEqual(models.detect_model("H6053"), "H6053")
+
+    def test_lowercase_name(self):
+        self.assertEqual(models.detect_model("govee_h617c_1234"), "H617C")
+
+    def test_unknown_model_returns_none(self):
+        self.assertIsNone(models.detect_model("Govee_H1234_5678"))
+
+    def test_no_model_in_name(self):
+        self.assertIsNone(models.detect_model("Living Room TV"))
+        self.assertIsNone(models.detect_model(""))
+
+
 class TestFades(unittest.TestCase):
     def test_fade_values_present(self):
         self.assertGreaterEqual(models.get_default_fade(), 0.0)

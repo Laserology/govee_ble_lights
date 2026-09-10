@@ -171,6 +171,16 @@ edit its entry under `devices`.
 
 With the integration setup, your Govee devices will appear as entities within HomeAssistant. All you need to do is select your device model when adding it.
 
+When a device is added over Bluetooth, the model is pre-selected automatically from the advertisement name whenever it matches a bundled model (e.g. `Govee_H617C_2482`).
+
+Each light also reports diagnostic attributes for automations and support:
+
+- `govee_model`, `govee_segments` (segmented models only)
+- `govee_rssi` — last seen signal strength
+- `govee_last_write_ms` — BLE write latency; handy for judging how heavy an effect is
+
+The "Download diagnostics" button on the config entry exports the same info.
+
 ---
 
 ## Troubleshooting for BLE

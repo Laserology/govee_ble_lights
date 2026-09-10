@@ -8,6 +8,7 @@ connection handling live in govee_ble.py.
 
 from __future__ import annotations
 
+from typing import Any
 import asyncio
 import logging
 import time
@@ -193,6 +194,33 @@ class GoveeBluetoothLight(LightEntity):
         """Return True if the light is on."""
         return self._state
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Diagnostic attributes for automations and support."""
+        attrs: dict[str, Any] = {"govee_model": self._model}
+
+        if self._is_segmented:
+            attrs["govee_segments"] = get_segment_count(self._model)
+
+        rssi = self._rssi()
+        if rssi is not None:
+            attrs["govee_rssi"] = rssi
+
+        if self._client is not None:
+            write_ms = GoveeBLE.last_write_ms(self._client)
+            if write_ms is not None:
+                attrs["govee_last_write_ms"] = round(write_ms, 1)
+
+        return attrs
+
+    def _rssi(self) -> int | None:
+        """Return the last reported RSSI for the device, if known."""
+        try:
+            info = bluetooth.async_last_service_info(self.hass, self._mac.upper(), True)
+        except Exception:
+            return None
+        return info.rssi if info is not None else None
+
     async def async_turn_on(self, **kwargs) -> None:
         """
         Turn the light on, optionally with an effect, brightness, color, or
@@ -258,17 +286,16 @@ class GoveeBluetoothLight(LightEntity):
         if ATTR_BRIGHTNESS in kwargs:
             self._brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
 
-            # Some models require a percentage instead of the raw value of a byte.
+            # Some models expect a percentage (0-100) instead of a raw byte.
+            if self._use_percent:
+                brightness = round(self._brightness * 100 / 255)
+            else:
+                brightness = self._brightness
+
             await GoveeBLE.send_single_packet(
                 self._client,
-                GoveeBLE.LEDCommand.BRIGHTNESS,  # Command
-                [  # Data
-                    (
-                        round(self._brightness * 100 / 255)
-                        if self._use_percent
-                        else self._brightness
-                    )
-                ],
+                GoveeBLE.LEDCommand.BRIGHTNESS,
+                [brightness],
             )
 
         # Handle RGB color setting
@@ -641,23 +668,30 @@ class GoveeBluetoothLight(LightEntity):
         if head != GoveeBLE.LEDFrameType.REQUEST:
             return
 
-        # Handle color change on non-segmented device
+        # Color reported for the whole strip (COLOR) or one segment (SEGMENT).
         if cmd in (GoveeBLE.LEDCommand.COLOR, GoveeBLE.LEDCommand.SEGMENT):
             if self._current_effect != EFFECT_OFF:
                 return
+
             if cmd == GoveeBLE.LEDCommand.COLOR and len(payload) >= 4:
-                self._rgb_color = (payload[1], payload[2], payload[3])
+                red, green, blue = payload[1], payload[2], payload[3]
+                self._rgb_color = (red, green, blue)
+
                 # Seed the fade state from the reported color so fades work
                 # before any explicit color has been set.
                 if self._segment_state is None:
-                    self._segment_state = [[payload[1], payload[2], payload[3]]]
+                    self._segment_state = [[red, green, blue]]
+
             elif cmd == GoveeBLE.LEDCommand.SEGMENT and len(payload) >= 5:
-                self._rgb_color = (payload[2], payload[3], payload[4])
+                red, green, blue = payload[2], payload[3], payload[4]
+                self._rgb_color = (red, green, blue)
+
                 # Seed the fade state from the reported color (assume the
                 # strip is solid until proven otherwise).
                 if self._segment_state is None:
-                    color = [payload[2], payload[3], payload[4]]
+                    color = [red, green, blue]
                     self._segment_state = [color] * get_segment_count(self._model)
+
             self.async_write_ha_state()
             return
 
@@ -669,6 +703,7 @@ class GoveeBluetoothLight(LightEntity):
             if state != self._state:
                 self._state = state
                 changed = True
+
         elif cmd == GoveeBLE.LEDCommand.BRIGHTNESS:
             # Convert percentage/absolute depending on the model
             brightness = (
@@ -677,6 +712,7 @@ class GoveeBluetoothLight(LightEntity):
             if brightness != self._brightness:
                 self._brightness = brightness
                 changed = True
+
         if changed:
             self.async_write_ha_state()
 
