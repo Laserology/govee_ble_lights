@@ -16,22 +16,10 @@ PLATFORMS: list[str] = ["light"]
 
 
 class Hub:
-    def __init__(self, address: str = None, devices: list = None) -> None:
-        """Init Govee dummy hub."""
-        self.devices = devices
+    """Mutable holder sharing the BLE address with the light entity."""
+
+    def __init__(self, address: str) -> None:
         self.address = address
-
-
-UNIQUE_DEVICES = {}
-
-
-def internal_unique_devices(uid: str, devices: list) -> list:
-    """Bind each device to one integration entry to avoid duplicates."""
-    return [
-        device
-        for device in devices
-        if UNIQUE_DEVICES.setdefault(device["device"], uid) == uid
-    ]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -29,9 +29,7 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialize the configuration flow state."""
-        self._config_type: str = ""
         self._discovery_info: None = None
-        self._discovered_device: None = None
         self._discovered_devices: dict[str, str] = {}
         self._available_models: list[str] = []
         self._available_config_types: dict[str, str] = {

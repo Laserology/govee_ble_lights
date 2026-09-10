@@ -5,7 +5,8 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 <img src="assets/govee-logo.png" alt="Govee Logo" width="125">
 
-A powerful and seamless integration to control your Govee lighting devices via Govee API or BLE directly from HomeAssistant.
+A powerful and seamless integration to control your Govee BLE lighting devices
+directly from HomeAssistant.
 This repository includes the source from the orignal BLE control reposityory, as well as patches from [cralex96](https://github.com/cralex96/govee_ble_lights) and [Rombond](https://github.com/Rombond/h617a_govee_ble_lights), credit to them for their work.
 
 Here is a compatability table of different light models.
@@ -15,8 +16,6 @@ Here is a compatability table of different light models.
 | H617A | ✅           | ✅                | ✅     |
 | H617C | ✅           | ✅                | ✅     |
 | more..| ✅           | ✅                | ✅     |
-
-Segmented lighting is currently not supported.
 
 ---
 
@@ -35,11 +34,9 @@ Segmented lighting is currently not supported.
 
 - 🚀 **Direct BLE Control**: No need for middlewares or bridges. Connect and control your Govee devices directly through Bluetooth Low Energy.
 
-- ☁️ **API Control**: Supported all light devices with full features support including scenes!
-
-- 🌈 **Scene Selection**: Leverage the full potential of your Govee lights by choosing from all available scenes, transforming the ambiance of your room instantly.
-  
 - 💡 **Comprehensive Lighting Control**: Adjust brightness, change colors, or switch on/off with ease.
+
+- 🌈 **Effects**: Animated, segment-aware patterns on segmented models, defined in `config.json`.
 
 ---
 
@@ -55,9 +52,6 @@ Segmented lighting is currently not supported.
 
 For Direct BLE Control:
 - Before you begin, make certain HomeAssistant can access BLE on your platform. Ensure your HomeAssistant instance is granted permissions to utilize the Bluetooth Low Energy of your host machine.
-
-For Govee API Control:
-- Retrieve Govee-API-Key as described [here](https://developer.govee.com/reference/apply-you-govee-api-key), setup integration with API type ad fill your API key.
 
 ### Device data (`config.json`)
 

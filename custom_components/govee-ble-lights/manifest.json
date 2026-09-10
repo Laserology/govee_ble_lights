@@ -12,7 +12,6 @@
     ],
     "codeowners": ["@Beshelmek", "@Laserology", "@Jaano"],
     "requirements": ["bleak-retry-connector"],
-    "dependencies": ["network"],
     "issue_tracker": "https://github.com/Laserology/govee_ble_lights/issues",
     "documentation": "https://github.com/Laserology/govee_ble_lights",
     "config_flow": true,

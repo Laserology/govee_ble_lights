@@ -758,7 +758,7 @@ class GoveeBluetoothLight(LightEntity):
         while self._client is None:
             try:
                 self._client = await GoveeBLE.create_connection(
-                    self._ble_device, self.unique_id, self.hass
+                    self._ble_device, self.unique_id
                 )
             except Exception:
                 # Wait before retrying
