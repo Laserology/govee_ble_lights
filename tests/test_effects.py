@@ -7,6 +7,7 @@ import _support
 _support.ensure()
 
 from govee_ble_lights.effects import (  # noqa: E402
+    effect_target,
     interpolate_segments,
     segment_colors,
     segments_to_writes,
@@ -46,6 +47,67 @@ class TestSegmentColors(unittest.TestCase):
             segment_colors({"colors": [[300, 0, 0]]}, 5)
         with self.assertRaises(ValueError):
             segment_colors({"colors": [[1, 2]]}, 5)
+
+
+class TestEffectTarget(unittest.TestCase):
+    def test_shift_default_matches_segment_colors(self):
+        effect = {"colors": [RED, GREEN, BLUE]}
+        self.assertEqual(
+            effect_target(effect, 5, offset=3),
+            segment_colors(effect, 5, offset=3),
+        )
+
+    def test_reverse_direction_shifts_backwards(self):
+        effect = {"colors": [RED, GREEN, BLUE]}
+        self.assertEqual(
+            effect_target(effect, 3, offset=1, direction=-1),
+            [BLUE, RED, GREEN],
+        )
+
+    def test_pulse_alternates_brightness(self):
+        effect = {"colors": [RED], "motion": "pulse"}
+        self.assertEqual(effect_target(effect, 4, offset=0), [RED] * 4)
+        # 255 * 0.25 = 63.75, rounded to 64.
+        self.assertEqual(effect_target(effect, 4, offset=1), [[64, 0, 0]] * 4)
+
+    def test_pulse_pattern_stays_put(self):
+        effect = {"colors": [RED, GREEN], "motion": "pulse"}
+        self.assertEqual(
+            effect_target(effect, 6, offset=0), [RED, GREEN, RED, GREEN, RED, GREEN]
+        )
+
+    def test_pulse_low_custom(self):
+        effect = {"colors": [[200, 100, 50]], "motion": "pulse", "pulse_low": 0.5}
+        self.assertEqual(effect_target(effect, 2, offset=1), [[100, 50, 25]] * 2)
+
+    def test_wipe_fills_then_cycles(self):
+        effect = {"colors": [RED, GREEN], "motion": "wipe"}
+        # Offset 0 paints the full pattern (start/rest state).
+        self.assertEqual(
+            effect_target(effect, 4, offset=0), [RED, GREEN, RED, GREEN]
+        )
+        self.assertEqual(
+            effect_target(effect, 4, offset=1), [RED, [0, 0, 0], [0, 0, 0], [0, 0, 0]]
+        )
+        self.assertEqual(
+            effect_target(effect, 4, offset=2),
+            [RED, GREEN, [0, 0, 0], [0, 0, 0]],
+        )
+        # Wraps back to the fully filled pattern.
+        self.assertEqual(
+            effect_target(effect, 4, offset=4), [RED, GREEN, RED, GREEN]
+        )
+
+    def test_wipe_reverse_fills_from_far_end(self):
+        effect = {"colors": [RED, GREEN], "motion": "wipe"}
+        self.assertEqual(
+            effect_target(effect, 4, offset=1, direction=-1),
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0], GREEN],
+        )
+
+    def test_invalid_effect_raises(self):
+        with self.assertRaises(ValueError):
+            effect_target({"colors": []}, 5)
 
 
 class TestSegmentsToWrites(unittest.TestCase):

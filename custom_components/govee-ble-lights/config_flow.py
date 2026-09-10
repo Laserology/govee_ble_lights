@@ -47,24 +47,13 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> FlowResult:
+        """Start configuring a discovered Bluetooth device: claim its address
+        as the unique ID (aborting if already configured), then confirm.
         """
-        Start configuring a discovered Bluetooth device.
-
-        Claims the device address as the unique ID, aborts if already
-        configured, and proceeds to the confirmation step.
-        """
-        # Set this device as the unique ID for this config entry
-        # This ensures one config entry per discovered device
         await self.async_set_unique_id(discovery_info.address)
-
-        # Abort if this device is already configured
-        # Prevents duplicate config entries for the same device
         self._abort_if_unique_id_configured()
 
-        # Store discovery info for later use in confirmation step
         self._discovery_info = discovery_info
-
-        # Move to the confirmation step
         return await self.async_step_bluetooth_confirm()
 
     async def async_step_bluetooth_confirm(
@@ -106,12 +95,8 @@ class GoveeConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
             }
 
-        # TODO: We could potentially infer the light model based on BLE advertisement name
-
-        # Set title placeholders for the confirmation dialog
         self.context["title_placeholders"] = placeholders
 
-        # Show the confirmation form with model selection dropdown
         return self.async_show_form(
             step_id="bluetooth_confirm",
             description_placeholders=placeholders,

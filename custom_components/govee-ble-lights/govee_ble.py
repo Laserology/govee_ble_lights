@@ -19,11 +19,9 @@ from bleak import BleakClient
 
 _LOGGER = logging.getLogger(__name__)
 
-# Per-client transport state. The write lock serializes every packet on a
-# connection - a whole multi-packet frame is sent under one lock hold so the
-# keepalive (or a racing service call) can never interleave between its
-# writes, and ``last_write`` lets the keepalive loop skip pings while the
-# link is demonstrably active.
+# Per-client transport state: a write lock serializing every packet (whole
+# frames go out under one hold, so nothing can interleave between their
+# writes) and the last-write time the keepalive loop uses to skip busy links.
 _client_transport: WeakKeyDictionary = WeakKeyDictionary()
 
 
@@ -76,12 +74,8 @@ class GoveeBLE:
 
     @staticmethod
     def keepalive_due(client: BleakClient) -> bool:
-        """True when no packet was written recently, so a ping is worthwhile.
-
-        During a fade or animation the link is being written to constantly;
-        pinging then only adds traffic and risks stalling a frame, so the
-        keepalive loop skips it.
-        """
+        """True when nothing was written recently, so a ping is worthwhile.
+        Skip pings during fades/animations - the link is obviously alive."""
         transport = GoveeBLE._transport_for(client)
         return (
             time.monotonic() - transport["last_write"]
@@ -102,13 +96,12 @@ class GoveeBLE:
         client: BleakClient, cmd, payload, frame_type=LEDFrameType.COMMAND
     ):
         """
-        Build and send a single command/request packet: frame_type, cmd,
-        payload (zero-padded to 19 bytes), then the XOR checksum byte.
+        Build and send a single command/request packet (1 frame, 20 bytes).
 
         Args:
             client: Connected BleakClient.
             cmd: Command byte (LEDCommand value).
-            payload: Data bytes (list/bytes, up to 17 bytes; empty for requests).
+            payload: Data bytes, up to 17 (empty for requests).
             frame_type: REQUEST for state queries, COMMAND otherwise.
 
         Raises:
@@ -173,18 +166,8 @@ class GoveeBLE:
 
     @staticmethod
     async def send_writes(client: BleakClient, frames: list, log_frame=True) -> None:
-        """Send a set of pre-built frames as one atomic visual update.
-
-        All frames are written under a single lock hold, so another task
-        (keepalive ping, a racing service call) cannot interleave between the
-        packets that make up one rendering frame, and the device sees the
-        update as a complete, ordered unit.
-
-        Args:
-            client: Connected BleakClient.
-            frames: Complete 20-byte frames to send, in order.
-            log_frame: Log each frame; disable to reduce spam.
-        """
+        """Send pre-built frames as one atomic visual update (single lock
+        hold, so nothing can interleave between the packets)."""
         async with GoveeBLE._transport_for(client)["lock"]:
             for frame in frames:
                 await GoveeBLE._write_frame(client, frame, log_frame)
@@ -192,10 +175,7 @@ class GoveeBLE:
     @staticmethod
     def verify_frame(frame):
         """Return True when the frame's XOR checksum byte is valid."""
-        # Compare calculated checksum of frame (without final byte) to stored checksum
-        return (
-            GoveeBLE.sign_payload(frame[:-1]) == frame[-1]
-        )  # Compare checksum of frame to calculated checksum
+        return GoveeBLE.sign_payload(frame[:-1]) == frame[-1]
 
     @staticmethod
     def parse_frame(frame):
@@ -231,9 +211,8 @@ class GoveeBLE:
 
     @staticmethod
     async def _write_frame(client: BleakClient, frame, log_frame: bool) -> None:
-        """Write one frame without taking the write lock; reconnect first if
-        disconnected (up to BLE_HANDLE_RETRY times). Update the transport's
-        last-write timestamp so the keepalive loop knows the link is active.
+        """Write one frame (no lock; caller holds it), reconnecting first if
+        needed, and record write latency/time for keepalive and diagnostics.
         """
         retry = 0
         while not client.is_connected:
@@ -261,9 +240,8 @@ class GoveeBLE:
 
     @staticmethod
     async def create_connection(ble_device, identifier) -> BleakClient:
-        """Establish a BLE connection via bleak_retry_connector (handles
-        retries and recovery). The caller keeps it alive with a keepalive
-        task (see ``ensure_connection``)."""
+        """Establish a BLE connection via bleak_retry_connector (the caller
+        keeps it alive with ``ensure_connection``)."""
         return await brc.establish_connection(
             BleakClient,
             ble_device,
@@ -273,43 +251,32 @@ class GoveeBLE:
 
     @staticmethod
     async def ensure_connection(client: BleakClient, reconnect_callback=None) -> None:
-        """
-        Background keepalive loop: every BLE_KEEPALIVE_INTERVAL, reconnect if
-        needed and send a keepalive packet. reconnect_callback restores GATT
-        notifications after reconnects (subscriptions are lost on disconnect).
-        """
+        """Background keepalive loop: every BLE_KEEPALIVE_INTERVAL, reconnect
+        if needed (re-registering notifications) and ping when idle."""
 
-        # Loop forever as a background task
         while True:
-            # Delay to avoid the loop spamming BLE packets
             await asyncio.sleep(GoveeBLE.BLE_KEEPALIVE_INTERVAL)
 
-            # Keep inside try block to avoid the loop dying
             try:
-                # Ensure client is connected
                 if not client.is_connected:
                     await client.connect()
 
-                    # Re-register BLE notifications after reconnection.
-                    # GATT subscriptions are lost when the underlying transport
-                    # disconnects, so this is critical for keeping state updates flowing.
+                    # GATT subscriptions are lost on disconnect, so restore
+                    # them when the link comes back.
                     if reconnect_callback is not None:
                         try:
                             await reconnect_callback()
                         except Exception as cb_err:
                             _LOGGER.debug("Reconnect callback failed: %s", cb_err)
 
-                # Skip the ping while writes are flowing (fades/animations);
-                # the connection is obviously alive and a ping could stall a
+                # Skip pings while writes are flowing; a ping could stall a
                 # frame mid-send.
                 if not GoveeBLE.keepalive_due(client):
                     continue
 
-                # Send data packet to keep the connection alive
                 await GoveeBLE.send_keepalive_packet(client)
             except Exception:
-                # Catch any exception and continue the loop
-                # This prevents crashes if connection temporarily fails
+                # Transient failures must not kill the loop.
                 continue
 
     @staticmethod

@@ -143,6 +143,28 @@ Top-level values control general transitions:
 
 All three default to 0 (instant) when absent.
 
+**Motion types:** animated effects advance one segment per step by default
+(*shift*). Set `motion` to change how the pattern moves:
+
+```json
+"Pulse": {
+  "colors": [[255, 105, 180]],
+  "step": 0.8,
+  "motion": "pulse"
+}
+```
+
+- `shift` (default) — the pattern travels along the strip;
+  `direction: "reverse"` travels the other way.
+- `pulse` — the pattern stays put and breathes: brightness alternates
+  between full and `pulse_low` (default 0.25) each step. Leave `fade` out
+  (or equal `step`) for a seamless breathe.
+- `wipe` — the pattern fills in from one end, one segment per step, resets
+  to the full strip, and repeats; `direction: "reverse"` fills from the far
+  end. The strip starts fully filled.
+
+A bundled `Pulse` effect demonstrates the breathe.
+
 **Automations:** the integration advertises the `transition` feature, so
 `light.turn_on` / `light.turn_off` accept a `transition` (seconds) and it
 overrides the configured fades for that call, e.g.:

@@ -31,7 +31,7 @@ from homeassistant.core import HomeAssistant
 
 from .govee_ble import GoveeBLE
 from .const import DOMAIN
-from .effects import run_fade, segment_colors, segments_to_writes
+from .effects import effect_target, run_fade, segments_to_writes
 from .models import (
     get_default_fade,
     get_fade_off,
@@ -398,10 +398,9 @@ class GoveeBluetoothLight(LightEntity):
         self, target: list[list[int]], fade: float, start_from_black: bool = False
     ) -> None:
         """
-        Move the strip toward *target*, crossfading over *fade* seconds
-        (instant when 0 or the start state is unknown). Only the most recent
-        render survives: stale fades abort before their next write so frames
-        from two fades never interleave.
+        Move the strip toward *target* over *fade* seconds (instant when 0 or
+        the start state is unknown). Only the most recent render survives, so
+        frames from two fades never interleave.
 
         Args:
             target: One color per segment.
@@ -430,14 +429,12 @@ class GoveeBluetoothLight(LightEntity):
             self._segment_state = target
             return
 
-        # Paint interpolated frames until the fade window elapses. run_fade
-        # paces against the wall clock so BLE write latency cannot stretch
-        # the fade or push the next animation step early (which caused motion
-        # to run in bursts and snap to the target).
+        # run_fade paces against the wall clock so write latency cannot
+        # stretch the fade or slip animation steps.
         async def send_frame(frame):
             await self._async_send_writes(self._writes_for_target(frame))
-            # Track the frame actually sent so an interrupted fade resumes
-            # from the real state.
+            # Track the last frame sent so an interrupted fade resumes from
+            # the real state.
             self._segment_state = frame
 
         await run_fade(
@@ -466,8 +463,8 @@ class GoveeBluetoothLight(LightEntity):
         """
         await self._async_cancel_effect_task()
 
-        # Remember this operation so a newer turn request arriving during the
-        # initial fade can supersede us (including not spawning the loop).
+        # Capture the operation so a newer turn request arriving during the
+        # initial fade can supersede us (and skip spawning the loop).
         my_op_serial = self._op_serial
 
         effect_def = self._effects[name]
@@ -482,23 +479,18 @@ class GoveeBluetoothLight(LightEntity):
                 else self._effect_fade(effect_def)
             )
         try:
-            target = segment_colors(
-                effect_def, get_segment_count(self._model)
-            )
+            target = effect_target(effect_def, get_segment_count(self._model))
         except ValueError as err:
             _LOGGER.error("Effect %r is invalid: %s", name, err)
             return
 
-        # Declare the effect active before rendering so the device's color
-        # notifications during the fade-in are ignored (they only describe the
-        # transient pattern), and before spawning the animation task - HA's
-        # eager task factory runs _effect_loop's first check at task creation,
-        # so it must already see our effect name.
+        # Declare before rendering (so the fade-in's color echoes are ignored)
+        # and before spawning the loop - HA's eager task factory runs its
+        # first check at task creation.
         self._current_effect = name
         await self._async_render_target(target, fade, start_from_black=start_from_black)
 
-        # A newer turn request superseded us during the initial fade: revert
-        # the declaration unless the newer request already claimed the effect.
+        # Superseded during the fade: revert unless a newer request claimed it.
         if self._op_serial != my_op_serial:
             if self._current_effect == name:
                 self._current_effect = EFFECT_OFF
@@ -513,13 +505,11 @@ class GoveeBluetoothLight(LightEntity):
         Fade duration for an effect's frame transitions.
 
         An explicit ``fade`` wins; otherwise animated effects default to the
-        ``step`` interval and static effects fall back to the top-level color
-        fade.
+        ``step`` interval and static effects to the top-level color fade.
 
-        Keep ``fade`` shorter than ``step``: the strip then completes the
-        morph and holds the settled pattern. ``fade == step`` runs
-        back-to-back transitions that never settle, so the strip stays
-        mid-fade and visibly snaps when the next step reverses it.
+        Keep ``fade`` shorter than ``step`` so the strip settles between
+        shifts; ``fade == step`` never settles (continuous pulse breathing is
+        the intended exception).
         """
         if "fade" in effect_def:
             return float(effect_def["fade"])
@@ -529,12 +519,12 @@ class GoveeBluetoothLight(LightEntity):
         return get_default_fade()
 
     async def _effect_loop(self, name: str) -> None:
-        """Advance an animated effect by one segment every ``step`` seconds.
+        """Advance an animated effect one step every ``step`` seconds.
 
-        Each step crossfades toward the new target (over ``fade`` seconds,
-        which should be a fraction of ``step`` so the strip settles between
-        shifts; ``fade: 0`` steps crisply). Pacing is deadline-based, so a
-        degenerate or failed render can't busy-spin the loop.
+        Each step crossfades toward the new target over ``fade`` seconds
+        (keep it below ``step`` so the strip settles; ``fade: 0`` steps
+        crisply). Deadline-based pacing stops a slow render from
+        busy-spinning the loop.
         """
         effect_def = self._effects[name]
         step = float(effect_def.get("step") or 0)
@@ -542,6 +532,7 @@ class GoveeBluetoothLight(LightEntity):
             return
 
         fade = self._effect_fade(effect_def)
+        direction = -1 if effect_def.get("direction") == "reverse" else 1
         offset = 0
         while not self.hass.is_stopping:
             # Stop when the effect changed or the light was turned off.
@@ -551,10 +542,11 @@ class GoveeBluetoothLight(LightEntity):
             offset += 1
             start = time.monotonic()
             try:
-                target = segment_colors(
+                target = effect_target(
                     effect_def,
                     get_segment_count(self._model),
                     offset=offset,
+                    direction=direction,
                 )
                 await self._async_render_target(target, fade)
             except asyncio.CancelledError:
@@ -649,14 +641,12 @@ class GoveeBluetoothLight(LightEntity):
 
     async def _process_notification(self, frame: bytes) -> None:
         """
-        Parse a device status frame and update entity state. Only REQUEST
-        (response) frames are processed; our own commands are ignored.
+        Update entity state from a device status frame (only REQUEST
+        responses; our own commands are ignored).
 
-        While an effect is active, color/segment notifications only describe
-        the transient pattern, so they are ignored: they would both overwrite
-        the last solid color (used to restore on effect/None and to fade off)
-        and spam a full HA state broadcast for every animation frame, which
-        adds event-loop load the animation itself competes with.
+        Color/segment notifications are ignored while an effect is active:
+        they only describe the transient pattern and would overwrite the last
+        solid color and spam HA state writes every frame.
         """
         try:
             head, cmd, payload = GoveeBLE.parse_frame(frame)

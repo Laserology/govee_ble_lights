@@ -1,26 +1,17 @@
 """
 Rendering of effect definitions into segment write commands.
 
-Govee lights that support segments share the same input system: a packet can
-paint an arbitrary *subset* of segments in one color by setting one bit per
-segment in a two-byte mask. Effect definitions therefore only describe a
-pattern (see ``models.py``), and this module resolves that pattern against a
-concrete segment count into the minimal set of per-color writes needed.
+Segmented Govee strips accept one packet per color, with a bitmask selecting
+which segments to paint (mask_lo = segments 1-8, mask_hi = 9-15). Effects are
+pattern palettes; this module resolves them into per-segment frames and the
+minimal per-color writes. Fading is done in software (firmware has no native
+fade), so fades are driven here too:
 
-Because most Govee firmware has no native fade, fading is done in software:
-the light entity interpolates between per-segment color states and re-sends
-frames quickly. This module provides the pure helpers for both concerns:
-
-- ``segment_colors`` — resolve an effect definition to one color per segment.
+- ``effect_target`` — one animation frame for any motion (shift/pulse/wipe).
 - ``segments_to_writes`` — group per-segment colors into minimal mask packets.
-- ``interpolate_segments`` — linear RGB interpolation between two states.
+- ``interpolate_segments`` / ``run_fade`` — software crossfades.
 
-Each returned "write" is::
-
-    {"color": (r, g, b), "mask_lo": int, "mask_hi": int}
-
-where ``mask_lo`` addresses segments 1-8 (bit 0 = segment 1) and ``mask_hi``
-addresses segments 9-15 (bit 0 = segment 9).
+Each returned "write" is ``{"color": ..., "mask_lo": int, "mask_hi": int}``.
 """
 
 from __future__ import annotations
@@ -29,6 +20,27 @@ import asyncio
 import time
 
 from .models import MAX_SEGMENT_COUNT
+
+
+def _effect_colors(effect: dict) -> list[list[int]]:
+    """Return the validated palette from an effect definition.
+
+    Raises:
+        ValueError: If the effect has no colors or any color is malformed.
+    """
+    colors = effect.get("colors")
+    if not colors:
+        raise ValueError("Effect has no 'colors' list")
+
+    for raw_color in colors:
+        valid = (
+            len(raw_color) == 3
+            and all(isinstance(channel, int) for channel in raw_color)
+            and all(0 <= channel <= 255 for channel in raw_color)
+        )
+        if not valid:
+            raise ValueError(f"Invalid color in effect: {raw_color}")
+    return colors
 
 
 def segment_colors(
@@ -53,24 +65,72 @@ def segment_colors(
     Raises:
         ValueError: If the effect definition is malformed.
     """
-    colors = effect.get("colors")
-    if not colors:
-        raise ValueError("Effect has no 'colors' list")
-
-    for raw_color in colors:
-        valid = (
-            len(raw_color) == 3
-            and all(isinstance(channel, int) for channel in raw_color)
-            and all(0 <= channel <= 255 for channel in raw_color)
-        )
-        if not valid:
-            raise ValueError(f"Invalid color in effect: {raw_color}")
-
+    colors = _effect_colors(effect)
     count = min(segment_count, MAX_SEGMENT_COUNT)
     return [
         list(colors[(offset + segment) % len(colors)])
         for segment in range(count)
     ]
+
+
+def effect_target(
+    effect: dict,
+    segment_count: int,
+    offset: int = 0,
+    direction: int = 1,
+) -> list[list[int]]:
+    """
+    One animation frame's per-segment colors for any motion type.
+
+    ``motion`` selects the behaviour (default ``shift``):
+    - ``shift``: pattern advances one segment per step (``direction=-1``
+      reverses the travel).
+    - ``pulse``: pattern stays put; brightness alternates full / ``pulse_low``
+      (default 0.25) each step.
+    - ``wipe``: pattern fills in from one end, one segment per step, then
+      wraps back to the full strip; offset 0 paints the full (start) state.
+
+    Args:
+        effect: Effect definition dict.
+        segment_count: Number of segments on the target device (<= 15).
+        offset: Animation step counter.
+        direction: 1 for forward travel, -1 for reverse.
+
+    Raises:
+        ValueError: If the effect definition is malformed.
+    """
+    count = min(segment_count, MAX_SEGMENT_COUNT)
+    if count == 0:
+        return []
+
+    motion = effect.get("motion", "shift")
+
+    if motion == "pulse":
+        colors = _effect_colors(effect)
+        low = float(effect.get("pulse_low", 0.25))
+        factor = 1.0 if offset % 2 == 0 else low
+        return [
+            [round(channel * factor) for channel in colors[segment % len(colors)]]
+            for segment in range(count)
+        ]
+
+    if motion == "wipe":
+        colors = _effect_colors(effect)
+        filled = offset % count or count
+        result = []
+        for segment in range(count):
+            if direction > 0:
+                active = segment < filled
+            else:
+                active = segment >= count - filled
+            result.append(
+                list(colors[segment % len(colors)]) if active else [0, 0, 0]
+            )
+        return result
+
+    # shift (also the fallback for unknown motion values)
+    shifted = offset if direction > 0 else -offset
+    return segment_colors(effect, count, offset=shifted)
 
 
 def segments_to_writes(segment_colors: list[list[int]]) -> list[dict]:
@@ -137,15 +197,12 @@ async def run_fade(
     is_current,
 ) -> None:
     """
-    Drive a wall-clock paced crossfade from *start* to *target*.
+    Crossfade *start* to *target* over *fade* seconds, wall-clock paced.
 
-    The exact target is written as the *final frame of the window*, not after
-    it: the loop reserves the measured write time of one frame so the target
-    lands by ``fade``. An extra post-window write would stretch every
-    transition to ``fade`` + one write latency - with ``fade`` equal to the
-    animation step that pushed each step past its slot and the cadence
-    visibly lagged. Frames are drawn against elapsed time so BLE write
-    latency can neither stretch the fade nor let animation steps collide.
+    The exact target is the final frame of the window: one frame's measured
+    write time is reserved so it lands by ``fade``, not ``fade`` + latency
+    (which stretched animation cadence). Deadline pacing keeps BLE write
+    latency from accumulating.
 
     Args:
         start: Starting per-segment colors.
@@ -153,8 +210,8 @@ async def run_fade(
         fade: Total fade duration in seconds (> 0).
         interval: Maximum spacing between frames.
         send_frame: Async callback painting one interpolated frame.
-        is_current: Callable returning False once this fade was superseded;
-            the fade then aborts (without writing the final target).
+        is_current: Callable returning False once superseded; the fade then
+            aborts without writing the final target.
     """
     if fade <= 0:
         await send_frame(target)
@@ -164,14 +221,12 @@ async def run_fade(
     last_write = 0.0
     while is_current():
         elapsed = time.monotonic() - begin
-        # Not enough time left for another interpolated frame's write: the
-        # exact target becomes the final frame, landing at roughly ``fade``.
+        # Reserve one frame's write time so the exact target lands by ``fade``.
         if elapsed + last_write >= fade:
             await send_frame(target)
             break
         fraction = elapsed / fade
-        # The start state is already on the strip; writing it again is wasted
-        # traffic on an already write-bound link.
+        # The start state is already on the strip; don't re-write it.
         if fraction > 0:
             write_start = time.monotonic()
             await send_frame(interpolate_segments(start, target, fraction))

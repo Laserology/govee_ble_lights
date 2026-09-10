@@ -53,9 +53,8 @@ Effect definitions
 ------------------
 
 Shared effects are defined once under the top-level ``effects`` key and are
-available to every model that can play them (segmented models). Because the
-definitions only describe *patterns*, they work on any segment count; the
-per-model ``segments`` value is what makes a pattern concrete for a device.
+available to every model that can play them (segmented models). Definitions
+are *patterns*, so one works on any segment count.
 
 Current format (static or animated segment pattern):
 
@@ -67,18 +66,25 @@ Current format (static or animated segment pattern):
       "fade": 0.9
     }
 
-Segment ``n`` of the device is set to
-``colors[(n - 1) % len(colors)]``, so a two-color list produces alternating
-segments regardless of how many segments the model has. The optional ``step``
-(seconds) makes the effect animated: every ``step`` the pattern shifts by one
-segment, which looks like the colors moving along the strip. Without ``step``
-the effect is static. The optional ``fade`` (seconds) crossfades between
-consecutive frames in software instead of jumping; set it to ``step - 0.1``
-so each transition completes with a safe margin before the next shift
-(``fade: 0`` steps crisply). ``fade == step`` runs back-to-back transitions
-that never settle and read as choppy on write-bound BLE links. Animated/
-moving effects can be extended later with new keys on the same definition
-object.
+Segment ``n`` of the device is set to ``colors[(n - 1) % len(colors)]`` so
+a two-color list alternates on any segment count. ``step`` (seconds) makes
+the effect animated - every ``step`` the pattern advances - and the optional
+``motion`` key picks how:
+
+- ``shift`` (default): the pattern travels along the strip, one segment per
+  step; ``"direction": "reverse"`` travels the other way.
+- ``pulse``: the pattern stays put and breathes - brightness alternates
+  between full and ``pulse_low`` (default 0.25) every step. Leave out
+  ``fade`` (or equal it to ``step``) for a seamless breathe.
+- ``wipe``: the pattern fills in from one end, one segment per step, resets
+  to the full strip, and repeats; ``"direction": "reverse"`` fills from the
+  far end. The initial paint is the full pattern.
+
+Without ``step`` the effect is static. The optional ``fade`` (seconds)
+crossfades between frames instead of jumping; set it to ``step - 0.1`` so
+each transition completes just before the next shift (``fade: 0`` steps
+crisply). ``fade == step`` never settles and reads as choppy - the exception
+is continuous ``pulse`` breathing, which wants it.
 """
 
 from __future__ import annotations
