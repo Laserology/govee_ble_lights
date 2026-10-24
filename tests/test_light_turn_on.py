@@ -100,6 +100,18 @@ class TestBareTurnOn(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(GoveeBLE.LEDCommand.COLOR, commands(client))
 
+    async def test_black_reported_color_is_treated_as_unknown(self):
+        # A fade-off leaves the device black; if that color was learned (e.g.
+        # from a state read after a reconnect), a bare turn-on must not paint it.
+        light, client = make_light()
+        light._rgb_color = (0, 0, 0)
+
+        await light.async_turn_on(transition=0)
+
+        _, cmd, payload = GoveeBLE.parse_frame(client.writes[-1])
+        self.assertEqual(cmd, GoveeBLE.LEDCommand.COLOR)
+        self.assertEqual(list(payload[1:4]), [255, 255, 255])
+
     async def test_brightness_only_change_while_on_does_not_repaint(self):
         # A slider move must not flash the strip from black.
         light, client = make_light()
