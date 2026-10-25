@@ -165,3 +165,31 @@ class TestRemoval(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def color_frame(red: int, green: int, blue: int) -> bytes:
+    """A device-originated (REQUEST) solid color status frame."""
+    return GoveeBLE.build_packet(
+        GoveeBLE.LEDFrameType.REQUEST, GoveeBLE.LEDCommand.COLOR, [0x02, red, green, blue]
+    )
+
+
+class TestReportedColor(unittest.IsolatedAsyncioTestCase):
+    async def test_black_color_report_keeps_the_last_color(self):
+        # After a fade-off the device reports black; that must not replace the
+        # color a later bare turn-on restores.
+        light, _ = make_light("H6006")
+        light._rgb_color = (10, 20, 30)
+        light.async_write_ha_state = lambda: None
+
+        await light._process_notification(color_frame(0, 0, 0))
+
+        self.assertEqual(light._rgb_color, (10, 20, 30))
+
+    async def test_real_color_report_is_adopted(self):
+        light, _ = make_light("H6006")
+        light.async_write_ha_state = lambda: None
+
+        await light._process_notification(color_frame(10, 20, 30))
+
+        self.assertEqual(light._rgb_color, (10, 20, 30))

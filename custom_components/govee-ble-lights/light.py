@@ -355,7 +355,7 @@ class GoveeBluetoothLight(LightEntity):
             return self._segment_state
 
         color = [255, 255, 255]
-        if self._rgb_color is not None:
+        if self._rgb_color is not None and any(self._rgb_color):
             color = list(self._rgb_color)
         if self._is_segmented:
             return [color] * get_segment_count(self._model)
@@ -716,6 +716,10 @@ class GoveeBluetoothLight(LightEntity):
 
             if cmd == GoveeBLE.LEDCommand.COLOR and len(payload) >= 4:
                 red, green, blue = payload[1], payload[2], payload[3]
+                # Black is what a fade-off leaves behind, not a color to keep:
+                # adopting it would make the next bare turn-on paint black.
+                if not (red or green or blue):
+                    return
                 self._rgb_color = (red, green, blue)
 
                 # Seed the fade state from the reported color so fades work
@@ -725,6 +729,8 @@ class GoveeBluetoothLight(LightEntity):
 
             elif cmd == GoveeBLE.LEDCommand.SEGMENT and len(payload) >= 5:
                 red, green, blue = payload[2], payload[3], payload[4]
+                if not (red or green or blue):
+                    return
                 self._rgb_color = (red, green, blue)
 
                 # Seed the fade state from the reported color (assume the
