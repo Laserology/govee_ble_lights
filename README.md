@@ -71,6 +71,26 @@ For Direct BLE Control:
 
 ---
 
+### A note on newly added models
+
+The wire protocol (BLE characteristic UUIDs, 20-byte frame layout, command
+bytes) is identical for every model in `config.json` — the per-model entry
+only changes how the UI treats the device (segmented or not, brightness
+scale). Most entries have been confirmed against real hardware over time by
+contributors and issue reports.
+
+A batch of models was added based on community documentation (other
+reverse-engineering projects, Homebridge's Govee device list) rather than
+direct hardware testing. They are very likely correct, since they use the
+same documented protocol family, but haven't been verified against real
+devices yet. Known limitation: models with a warm-white/CCT channel (e.g.
+H6005, H6113) only get RGB control this way — color temperature isn't
+encoded by this protocol.
+
+If you own one of these and it works (or doesn't), please open a
+[device compatibility report](https://github.com/Laserology/govee_ble_lights/issues/new?template=compatibility_report.md)
+so the list can be corrected/confirmed over time.
+
 ## Usage
 
 With the integration installed and Home Assistant restarted, add your light:

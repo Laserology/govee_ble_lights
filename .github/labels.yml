@@ -16,6 +16,9 @@
 - name: ci
   description: Continuous Integration
   color: 4a97d6
+- name: compatibility
+  description: Reports whether a device model works (or doesn't) with the integration
+  color: c2e0c6
 - name: dependencies
   description: Pull requests that update a dependency file
   color: 0366d6
