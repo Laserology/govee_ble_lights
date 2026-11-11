@@ -5,7 +5,10 @@
     "H6010": {},
     "H601A": {},
     "H601B": {},
-    "H6046": {},
+    "H6046": {
+      "segmented": true,
+      "brightness_percent": true
+    },
     "H6047": {},
     "H604A": {},
     "H604B": {},
@@ -26,7 +29,10 @@
     "H6072": {
       "segmented": true
     },
-    "H6076": {},
+    "H6076": {
+      "segmented": true,
+      "brightness_percent": true
+    },
     "H6078": {},
     "H6088": {},
     "H6102": {
@@ -80,6 +86,10 @@
     "H61A5": {},
     "H61A8": {},
     "H61B2": {},
+    "H61B5": {
+      "segmented": true,
+      "brightness_percent": true
+    },
     "H61C3": {},
     "H61C5": {},
     "H61E0": {},
